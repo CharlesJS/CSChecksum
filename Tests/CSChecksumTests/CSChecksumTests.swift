@@ -38,6 +38,7 @@ final class CSChecksumTests: XCTestCase {
             name: "gettysburg.txt",
             checksums: [
                 .adler32: "0013f1a6",
+                .bsd: "926fc95e",
                 .crc32: "193db42e",
                 .md2: "a9095080724e5beffc35ed027f0d84a7",
                 .md5: "f7cf20533efd90326ee656e72e22801d",
@@ -53,6 +54,7 @@ final class CSChecksumTests: XCTestCase {
             name: "test.mp4",
             checksums: [
                 .adler32: "ec6bd615",
+                .bsd: "f73934f6",
                 .crc32: "a967a8c3",
                 .md2: "6e67e0fdb7f7e66b8a7bff24978c2e2e",
                 .md5: "ca971677116da0b83e22485bb5ae840f",
@@ -68,6 +70,7 @@ final class CSChecksumTests: XCTestCase {
             name: "hello.png",
             checksums: [
                 .adler32: "0cd519b7",
+                .bsd: "52efa0c3",
                 .crc32: "08f18bcf",
                 .md2: "a9b1d6ecfc5b29fc70249b3c25138514",
                 .md5: "fe08257dd19c051f6466fb5ecd8936be",

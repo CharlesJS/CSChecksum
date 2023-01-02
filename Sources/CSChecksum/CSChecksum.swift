@@ -14,8 +14,9 @@ public class CSChecksum {
     @_spi(CSChecksumInternal) public static let bufsize = 1024 * 10
 
     public enum Algorithm: UInt8, CustomStringConvertible {
-        case crc32
         case adler32
+        case bsd
+        case crc32
         case md2     // WARNING: Not secure. Included for use in parsing legacy file types only.
         case md5     // WARNING: Not secure. Included for use in parsing legacy file types only.
         case sha1    // WARNING: Not secure. Included for use in parsing legacy file types only.
@@ -26,10 +27,12 @@ public class CSChecksum {
 
         public var description: String {
             switch self {
-            case .crc32:
-                return "CRC32"
             case .adler32:
                 return "Adler32"
+            case .bsd:
+                return "BSD"
+            case .crc32:
+                return "CRC32"
             case .md2:
                 return "MD2"
             case .md5:
@@ -49,13 +52,15 @@ public class CSChecksum {
     }
 
     private enum Backing {
-        case zlib(uLong)
+        case bsd(BSDCksumState)
+        case data(ContiguousArray<UInt8>)
         case md2(UnsafeMutableRawPointer)
         case md5(UnsafeMutableRawPointer)
         case sha1(UnsafeMutablePointer<CC_SHA1_CTX>)
         case sha256(UnsafeMutablePointer<CC_SHA256_CTX>)
         case sha512(UnsafeMutablePointer<CC_SHA512_CTX>)
-        case data(ContiguousArray<UInt8>)
+        case zlib(uLong)
+
     }
 
     private struct AsyncDataChunkSequence<Base: AsyncSequence>: AsyncSequence where Base.Element == UInt8 {
@@ -149,6 +154,8 @@ public class CSChecksum {
         switch algorithm {
         case .adler32:
             self.backing = .zlib(adler32(0, nil, 0))
+        case .bsd:
+            self.backing = .bsd(BSDCksumState())
         case .crc32:
             self.backing = .zlib(crc32(0, nil, 0))
         case .md2:
@@ -180,7 +187,7 @@ public class CSChecksum {
 
     deinit {
         switch self.backing {
-        case .zlib, .data:
+        case .zlib, .data, .bsd:
             break
         case let .md2(ptr):
             ptr.deallocate()
@@ -202,6 +209,8 @@ public class CSChecksum {
             switch self.algorithm {
             case .adler32, .crc32:
                 return Int(uInt.max)
+            case .bsd:
+                return Int.max
             case .md2, .md5, .sha1, .sha224, .sha256, .sha384, .sha512:
                 return Int(CC_LONG.max)
             }
@@ -224,6 +233,8 @@ public class CSChecksum {
                 switch (self.algorithm, self.backing) {
                 case (.adler32, .zlib(let cksum)):
                     self.backing = .zlib(adler32(cksum, ptr, uInt(bytes.count)))
+                case (.bsd, .bsd(let state)):
+                    state.update(data: bytes)
                 case (.crc32, .zlib(let cksum)):
                     self.backing = .zlib(crc32(cksum, ptr, uInt(bytes.count)))
                 case (.md2, .md2(let ctx)):
@@ -260,6 +271,10 @@ public class CSChecksum {
             var crc32 = UInt32(cksum)
 
             return withUnsafeBytes(of: &crc32) { ContiguousArray($0) }
+        case let .bsd(state):
+            var crc = state.crc
+
+            return withUnsafeBytes(of: &crc) { ContiguousArray($0) }
         case let .md2(ctx):
             let data = (self as DeprecatedStuff).md2Finalize(ctx: ctx)
 
