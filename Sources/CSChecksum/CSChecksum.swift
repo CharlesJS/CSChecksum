@@ -2,7 +2,7 @@
 //  CSChecksum.swift
 //
 //  Created by Charles Srstka on 4/3/14.
-//  Copyright © 2014-2022 Charles Srstka. All rights reserved.
+//  Copyright © 2014-2023 Charles Srstka. All rights reserved.
 //
 
 import System
