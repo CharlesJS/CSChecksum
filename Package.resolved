@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "csdataprotocol",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/CharlesJS/CSDataProtocol",
+      "state" : {
+        "revision" : "d63a07c50ae31256baa67e6f266ab36c4b16309f",
+        "version" : "0.1.0"
+      }
+    }
+  ],
+  "version" : 2
+}
