@@ -8,7 +8,7 @@
 import Foundation
 import CSDataProtocol
 import CSDataProtocol_Foundation
-@_spi(CSChecksumInternal) import CSChecksum
+import CSChecksum
 
 extension CSChecksum {
     @available(macOS 10.15.4, macCatalyst 13.4, iOS 13.4, tvOS 13.4, watchOS 6.2, *)

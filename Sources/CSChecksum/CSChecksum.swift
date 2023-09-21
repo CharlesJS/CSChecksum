@@ -11,7 +11,7 @@ import CommonCrypto
 import CSDataProtocol
 
 public class CSChecksum {
-    @_spi(CSChecksumInternal) public static let bufsize = 1024 * 10
+    package static let bufsize = 1024 * 10
 
     public enum Algorithm: UInt8, CustomStringConvertible {
         case adler32
@@ -205,16 +205,14 @@ public class CSChecksum {
     public func update(withInputData data: some DataProtocol) {
         if data.isEmpty { return }
 
-        let maxLength: Int = {
-            switch self.algorithm {
-            case .adler32, .crc32:
-                return Int(uInt.max)
-            case .bsd:
-                return Int.max
-            case .md2, .md5, .sha1, .sha224, .sha256, .sha384, .sha512:
-                return Int(CC_LONG.max)
-            }
-        }()
+        let maxLength = switch self.algorithm {
+        case .adler32, .crc32:
+            Int(Int32.max)
+        case .bsd:
+            Int.max
+        case .md2, .md5, .sha1, .sha224, .sha256, .sha384, .sha512:
+            Int(CC_LONG.max)
+        }
 
         if data.count > maxLength {
             let cutoff = data.index(data.startIndex, offsetBy: maxLength)
