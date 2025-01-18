@@ -27,7 +27,8 @@ let package = Package(
     targets: [
         .target(
             name: "CSChecksum",
-            dependencies: ["CSDataProtocol"]
+            dependencies: ["CSDataProtocol"],
+            resources: [.copy("fixtures")]
         ),
         .target(
             name: "CSChecksum_Foundation",
