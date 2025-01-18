@@ -5,7 +5,12 @@
 //  Created by Charles Srstka on 1/1/23.
 //
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
+
 import CSDataProtocol
 import CSDataProtocol_Foundation
 import CSChecksum
