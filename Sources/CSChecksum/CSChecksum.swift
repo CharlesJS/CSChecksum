@@ -13,7 +13,7 @@ import CSDataProtocol
 public class CSChecksum {
     package static let bufsize = 1024 * 10
 
-    public enum Algorithm: UInt8, CustomStringConvertible {
+    public enum Algorithm: UInt8, CustomStringConvertible, Sendable {
         case adler32
         case bsd
         case crc32

@@ -5,7 +5,7 @@ import System
 @testable import CSChecksum
 @testable import CSChecksum_Foundation
 
-struct Fixture {
+struct Fixture: Sendable {
     let url: URL
     let checksums: [CSChecksum.Algorithm : Data]
 
