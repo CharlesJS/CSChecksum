@@ -2,6 +2,17 @@
 
 import PackageDescription
 
+#if arch(x86_64)
+let swiftSettings: [PackageDescription.SwiftSetting]? = [
+    .unsafeFlags([
+        "-Xcc", "-Xclang", "-Xcc", "-target-feature", "-Xcc", "-Xclang", "-Xcc", "+sse4.2",
+        "-Xcc", "-Xclang", "-Xcc", "-target-feature", "-Xcc", "-Xclang", "-Xcc", "+pclmul",
+    ])
+]
+#else
+let swiftSettings: [PackageDescription.SwiftSetting]? = nil
+#endif
+
 let package = Package(
     name: "CSChecksum",
     platforms: [
@@ -26,14 +37,21 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "asm"
+        ),
+        .target(
             name: "CSChecksum",
-            dependencies: ["CSDataProtocol"],
-            resources: [.copy("fixtures")]
+            dependencies: [
+                "asm",
+                "CSDataProtocol"
+            ],
+            swiftSettings: swiftSettings
         ),
         .target(
             name: "CSChecksum_Foundation",
             dependencies: [
                 "CSChecksum",
+                "asm",
                 .product(name: "CSDataProtocol+Foundation", package: "CSDataProtocol")
             ]
         ),

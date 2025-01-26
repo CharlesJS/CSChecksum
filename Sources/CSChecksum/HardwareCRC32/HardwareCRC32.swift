@@ -1,6 +1,6 @@
 //
-//  ARMCRC32C.swift
-//  CRC32C
+//  HardwareCRC32.swift
+//  CSChecksum
 //
 //  Created by Charles Srstka on 1/20/25.
 //
@@ -9,11 +9,46 @@
 // ./generate -i neon_eor3 -p crc32c -a v9s3x2e_s3
 // MIT licensed
 
-import _Builtin_intrinsics.arm.acle
-import _Builtin_intrinsics.arm.neon
 import asm
 
-public struct CorsixARMCRC32C {
+#if arch(arm64)
+import _Builtin_intrinsics.arm.acle
+import _Builtin_intrinsics.arm.neon
+
+private typealias DoubleQuad = SIMD2<UInt64>
+
+@inline(__always) private func castToUInt64(_ x: UInt64) -> UInt64 { x }
+
+#elseif arch(x86_64)
+import _Builtin_intrinsics.intel.sse4_2
+private typealias DoubleQuad = SIMD2<Int64>
+
+@inline(__always) private func castToUInt64(_ x: Int64) -> UInt64 { UInt64(bitPattern: x) }
+
+@inline(__always)
+private func __crc32cb(_ crc: UInt32, _ byte: UInt8) -> UInt32 {
+    _mm_crc32_u8(crc, byte)
+}
+
+@inline(__always)
+private func __crc32cw(_ crc: UInt32, _ word: UInt32) -> UInt32 {
+    _mm_crc32_u32(crc, word)
+}
+
+@inline(__always)
+private func __crc32cd(_ crc: UInt32, _ quad: UInt64) -> UInt32 {
+    UInt32(truncatingIfNeeded: _mm_crc32_u64(UInt64(crc), quad))
+}
+
+@inline(__always)
+private func eor3(_ a: DoubleQuad, _ b: DoubleQuad, _ c: DoubleQuad) -> DoubleQuad {
+    // TODO: optimize on native x86_64 (Rosetta does not support AVX512 instructions)
+    (a ^ b ^ c)
+}
+
+#endif
+
+public struct HardwareCRC32 {
     private static func xnmodp(_ _n: UInt64) -> UInt32 {
         // x^n mod P, in log(n) time
 
@@ -38,17 +73,23 @@ public struct CorsixARMCRC32C {
 
             if stack == 0 { break }
 
+#if arch(arm64)
             let x = vreinterpret_p8_p64(vmov_n_u64(UInt64(acc)))
-            let y = vreinterpretq_u64_p16(vmull_p8(x, x)).x
-            acc = __crc32cd(0, y &<< low)
+            let quad = vreinterpretq_u64_p16(vmull_p8(x, x)).x
+#elseif arch(x86_64)
+            let x = DoubleQuad(Int64(acc), 0)
+            let y = clmul_lo(x, x).x
+            let quad = UInt64(bitPattern: y)
+#endif
+            acc = __crc32cd(0, quad &<< low)
         }
 
         return acc
     }
 
     @inline(__always)
-    private static func crc_shift(_ crc: UInt32, _ nbytes: UInt64) -> SIMD2<UInt64> {
-        clmul_scalar(crc, xnmodp(nbytes &* 8 &- 33))
+    private static func crc_shift(_ crc: UInt32, _ nbytes: UInt64) -> DoubleQuad {
+        clmul_lo(DoubleQuad(DoubleQuad.Scalar(crc), 0), DoubleQuad(DoubleQuad.Scalar(xnmodp(nbytes &* 8 &- 33)), 0))
     }
 
     public static func crc32c(bytes: UnsafeRawBufferPointer, initialValue: UInt32) -> UInt32 {
@@ -68,7 +109,7 @@ public struct CorsixARMCRC32C {
             let blk = quads.count / 24
             let klen = blk &* 2
 
-            let endOffset = quads[(klen * 3)...].withMemoryRebound(to: SIMD2<UInt64>.self) { vecs in
+            let endOffset: Int = quads[(klen * 3)...].withMemoryRebound(to: DoubleQuad.self) { vecs in
                 var quadsPtr = quads.baseAddress!
                 var vecsPtr = vecs.baseAddress!
                 let limit = quadsPtr + klen - 4
@@ -84,9 +125,9 @@ public struct CorsixARMCRC32C {
                 var x7 = (vecsPtr + 7).pointee
                 var x8 = (vecsPtr + 8).pointee
 
-                var y0, y1, y2, y3, y4, y5, y6, y7, y8: SIMD2<UInt64>
+                var y0, y1, y2, y3, y4, y5, y6, y7, y8: DoubleQuad
 
-                var k = SIMD2<UInt64>(0x7e908048, 0xc96cfdc0)
+                var k = DoubleQuad(0x7e908048, 0xc96cfdc0)
                 vecsPtr += 9
 
                 var crc1: UInt32 = 0
@@ -126,7 +167,7 @@ public struct CorsixARMCRC32C {
                 }
 
                 // Reduce x0 ... x8 to just x0.
-                k = SIMD2<UInt64>(0xf20c0dfe, 0x493c7d27)
+                k = DoubleQuad(0xf20c0dfe, 0x493c7d27)
                 y0 = clmul_lo(x0, k); x0 = clmul_hi(x0, k)
                 x0 = eor3(x0, y0, x1)
                 x1 = x2; x2 = x3; x3 = x4; x4 = x5; x5 = x6; x6 = x7; x7 = x8
@@ -139,13 +180,13 @@ public struct CorsixARMCRC32C {
                 x4 = eor3(x4, y4, x5)
                 x6 = eor3(x6, y6, x7)
 
-                k = SIMD2<UInt64>(0x3da6d0cb, 0xba4fc28e)
+                k = DoubleQuad(0x3da6d0cb, 0xba4fc28e)
                 y0 = clmul_lo(x0, k); x0 = clmul_hi(x0, k)
                 y4 = clmul_lo(x4, k); x4 = clmul_hi(x4, k)
                 x0 = eor3(x0, y0, x2)
                 x4 = eor3(x4, y4, x6)
 
-                k = SIMD2<UInt64>(0x740eef02, 0x9e4addf8)
+                k = DoubleQuad(0x740eef02, 0x9e4addf8)
                 y0 = clmul_lo(x0, k); x0 = clmul_hi(x0, k)
                 x0 = eor3(x0, y0, x4)
 
@@ -160,10 +201,11 @@ public struct CorsixARMCRC32C {
                 let vc0 = crc_shift(crc0, UInt64(klen) * 16 + UInt64(blk) * 144)
                 let vc1 = crc_shift(crc1, UInt64(klen) * 8 + UInt64(blk) * 144)
                 let vc2 = crc_shift(crc2, UInt64(blk) * 144)
+
                 let vc = eor3(vc0, vc1, vc2).x
                 // Reduce 128 bits to 32 bits, and multiply by x^32.
-                crc0 = __crc32cd(0, x0.x)
-                crc0 = __crc32cd(crc0, vc ^ x0.y)
+                crc0 = __crc32cd(0, castToUInt64(x0.x))
+                crc0 = __crc32cd(crc0, castToUInt64(vc ^ x0.y))
 
                 return Int(bitPattern: vecsPtr) - Int(bitPattern: baseAddress)
             }
@@ -187,7 +229,7 @@ public struct CorsixARMCRC32C {
 
             let vc0 = crc_shift(crc0, (UInt64(klen) &* 2 &+ 1) &* 8)
             let vc1 = crc_shift(crc1, (UInt64(klen) &+ 1) &* 8)
-            let vc = veorq_u64(vc0, vc1).x
+            let vc = castToUInt64((vc0 ^ vc1).x)
 
             // Final 8 bytes.
             crc0 = __crc32cd(crc2, quads[(klen &* 3)] ^ vc)

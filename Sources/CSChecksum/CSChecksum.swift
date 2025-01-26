@@ -17,6 +17,7 @@ public class CSChecksum {
         case adler32
         case bsd
         case crc32
+        case crc32c
         case md2     // WARNING: Not secure. Included for use in parsing legacy file types only.
         case md5     // WARNING: Not secure. Included for use in parsing legacy file types only.
         case sha1    // WARNING: Not secure. Included for use in parsing legacy file types only.
@@ -33,6 +34,8 @@ public class CSChecksum {
                 return "BSD"
             case .crc32:
                 return "CRC32"
+            case .crc32c:
+                return "CRC32C"
             case .md2:
                 return "MD2"
             case .md5:
@@ -53,6 +56,7 @@ public class CSChecksum {
 
     private enum Backing {
         case bsd(BSDCksumState)
+        case hardwareCRC32C(UInt32)
         case data(ContiguousArray<UInt8>)
         case md2(UnsafeMutableRawPointer)
         case md5(UnsafeMutableRawPointer)
@@ -158,6 +162,8 @@ public class CSChecksum {
             self.backing = .bsd(BSDCksumState())
         case .crc32:
             self.backing = .zlib(crc32(0, nil, 0))
+        case.crc32c:
+            self.backing = .hardwareCRC32C(0)
         case .md2:
             self.backing = .md2((CSChecksum.self as DeprecatedStuff.Type).md2Init())
         case .md5:
@@ -187,7 +193,7 @@ public class CSChecksum {
 
     deinit {
         switch self.backing {
-        case .zlib, .data, .bsd:
+        case .zlib, .data, .bsd, .hardwareCRC32C:
             break
         case let .md2(ptr):
             ptr.deallocate()
@@ -206,7 +212,7 @@ public class CSChecksum {
         if data.isEmpty { return }
 
         let maxLength = switch self.algorithm {
-        case .adler32, .crc32:
+        case .adler32, .crc32, .crc32c:
             Int(Int32.max)
         case .bsd:
             Int.max
@@ -224,8 +230,8 @@ public class CSChecksum {
         }
 
         data.regions.forEach {
-            $0.withUnsafeBytes {
-                let bytes = $0.bindMemory(to: UInt8.self)
+            $0.withUnsafeBytes { rawBytes in
+                let bytes = rawBytes.bindMemory(to: UInt8.self)
                 guard let ptr = bytes.baseAddress else { return }
 
                 switch (self.algorithm, self.backing) {
@@ -235,6 +241,8 @@ public class CSChecksum {
                     state.update(data: bytes)
                 case (.crc32, .zlib(let cksum)):
                     self.backing = .zlib(crc32(cksum, ptr, uInt(bytes.count)))
+                case (.crc32c, .hardwareCRC32C(let cksum)):
+                    self.backing = .hardwareCRC32C(HardwareCRC32.crc32c(bytes: rawBytes, initialValue: cksum))
                 case (.md2, .md2(let ctx)):
                     (self as DeprecatedStuff).md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
                 case (.md5, .md5(let ctx)):
@@ -265,6 +273,10 @@ public class CSChecksum {
         }
 
         switch self.backing {
+        case .hardwareCRC32C(let cksum):
+            var crc32 = UInt32(cksum)
+
+            return withUnsafeBytes(of: &crc32) { ContiguousArray($0) }
         case let .zlib(cksum):
             var crc32 = UInt32(cksum)
 

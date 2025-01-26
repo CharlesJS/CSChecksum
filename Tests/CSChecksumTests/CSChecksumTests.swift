@@ -33,6 +33,7 @@ let fixtures: [Fixture] = [
             .adler32: "0013f1a6",
             .bsd: "926fc95e",
             .crc32: "193db42e",
+            .crc32c: "7929e411",
             .md2: "a9095080724e5beffc35ed027f0d84a7",
             .md5: "f7cf20533efd90326ee656e72e22801d",
             .sha1: "1ad822f01126b638ba4c3ca56df32f2087d84b90",
@@ -49,6 +50,7 @@ let fixtures: [Fixture] = [
             .adler32: "ec6bd615",
             .bsd: "f73934f6",
             .crc32: "a967a8c3",
+            .crc32c: "e12e1831",
             .md2: "6e67e0fdb7f7e66b8a7bff24978c2e2e",
             .md5: "ca971677116da0b83e22485bb5ae840f",
             .sha1: "1623262fb1f52c1b844cbe3b6e8f3caf830ff4f5",
@@ -65,6 +67,7 @@ let fixtures: [Fixture] = [
             .adler32: "0cd519b7",
             .bsd: "52efa0c3",
             .crc32: "08f18bcf",
+            .crc32c: "536cb446",
             .md2: "a9b1d6ecfc5b29fc70249b3c25138514",
             .md5: "fe08257dd19c051f6466fb5ecd8936be",
             .sha1: "d25f664243e3e78736ef94db9bd890e969aa42e5",
@@ -101,6 +104,10 @@ func testChecksums(fixture: Fixture) throws {
     for (algorithm, checksum) in checksums {
         let expected = fixture.checksums[algorithm]
 
+        if Data(checksum.checksumData) != expected {
+            print("failure for \(algorithm)")
+        }
+
         #expect(Data(checksum.checksumData) == expected)
         #expect(Data(checksum.checksumData) == expected) // make sure it returns the same value when rerun
         #expect(Data(CSChecksum.checksum(for: data, algorithm: algorithm)) == expected)
@@ -133,6 +140,14 @@ func testAsyncChecksums(fixture: Fixture) async throws {
     }
 }
 
+let excessivelyLongData: Data = {
+    let repeated = "yes it goes on and on my friends".data(using: .ascii)!
+
+    return (0..<134217728).reduce(into: Data()) { data, _ in
+        data += repeated
+    }
+}()
+
 @Test(arguments: [
     (.adler32, Data([0xb0, 0x80, 0x2f, 0xf7])),
     (.crc32, Data([0x56, 0x28, 0xe3, 0xe5])),
@@ -148,13 +163,7 @@ func testAsyncChecksums(fixture: Fixture) async throws {
     ]))
 ] as [(CSChecksum.Algorithm, Data)])
 func testExcessivelyLongInputData(algorithm: CSChecksum.Algorithm, expected: Data) {
-    let repeated = "yes it goes on and on my friends".data(using: .ascii)!
-
-    let data = (0..<134217728).reduce(into: Data()) { data, _ in
-        data += repeated
-    }
-
-    #expect(Data(CSChecksum.checksum(for: data, algorithm: algorithm)) == expected)
+    #expect(Data(CSChecksum.checksum(for: excessivelyLongData, algorithm: algorithm)) == expected)
 }
 
 @Test
