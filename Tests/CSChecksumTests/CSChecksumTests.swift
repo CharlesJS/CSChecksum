@@ -5,13 +5,24 @@ import System
 @testable import CSChecksum
 @testable import CSChecksum_Foundation
 
-struct Fixture: Sendable {
+struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendable {
     let url: URL
-    let checksums: [CSChecksum.Algorithm : Data]
+    let intChecksums: [CSChecksumAlgorithm : UInt32]
+    let dataChecksums: [CSChecksumAlgorithm : Data]
 
-    init(name: String, checksums: [CSChecksum.Algorithm: String]) {
+    var testDescription: String { url.lastPathComponent }
+    func encodeTestArgument(to encoder: some Encoder) throws { try self.url.encode(to: encoder) }
+
+    init(
+        name: String,
+        intChecksums: [CSChecksumAlgorithm: UInt32],
+        dataChecksums: [CSChecksumAlgorithm: String]
+    ) {
         self.url = Bundle.module.url(forResource: name, withExtension: "", subdirectory: "fixtures")!
-        self.checksums = checksums.mapValues { Self.convertChecksumString($0) }
+
+        self.intChecksums = intChecksums
+        let intDataChecksums = intChecksums.mapValues { Self.convertChecksumInt($0) }
+        self.dataChecksums = dataChecksums.mapValues { Self.convertChecksumString($0) }.merging(intDataChecksums) { $1 }
     }
 
     private static func convertChecksumString(_ cksumString: String) -> Data {
@@ -24,16 +35,24 @@ struct Fixture: Sendable {
 
         return data
     }
+
+    private static func convertChecksumInt<I: FixedWidthInteger>(_ cksum: I) -> Data {
+        var i = cksum
+
+        return withUnsafeBytes(of: &i) { Data($0) }
+    }
 }
 
 let fixtures: [Fixture] = [
     Fixture(
         name: "gettysburg.txt",
-        checksums: [
-            .adler32: "0013f1a6",
-            .bsd: "926fc95e",
-            .crc32: "193db42e",
-            .crc32c: "7929e411",
+        intChecksums: [
+            .adler32: 0xa6f11300,
+            .crc32: 0x2eb43d19,
+            .crc32c: 0x11e42979,
+            .posix: 0x5ec96f92
+        ],
+        dataChecksums: [
             .md2: "a9095080724e5beffc35ed027f0d84a7",
             .md5: "f7cf20533efd90326ee656e72e22801d",
             .sha1: "1ad822f01126b638ba4c3ca56df32f2087d84b90",
@@ -46,11 +65,13 @@ let fixtures: [Fixture] = [
     ),
     Fixture(
         name: "test.mp4",
-        checksums: [
-            .adler32: "ec6bd615",
-            .bsd: "f73934f6",
-            .crc32: "a967a8c3",
-            .crc32c: "e12e1831",
+        intChecksums: [
+            .adler32: 0x15d66bec,
+            .crc32: 0xc3a867a9,
+            .crc32c: 0x31182ee1,
+            .posix: 0xf63439f7
+        ],
+        dataChecksums: [
             .md2: "6e67e0fdb7f7e66b8a7bff24978c2e2e",
             .md5: "ca971677116da0b83e22485bb5ae840f",
             .sha1: "1623262fb1f52c1b844cbe3b6e8f3caf830ff4f5",
@@ -63,11 +84,13 @@ let fixtures: [Fixture] = [
     ),
     Fixture(
         name: "hello.png",
-        checksums: [
-            .adler32: "0cd519b7",
-            .bsd: "52efa0c3",
-            .crc32: "08f18bcf",
-            .crc32c: "536cb446",
+        intChecksums: [
+            .adler32: 0xb719d50c,
+            .crc32: 0xcf8bf108,
+            .crc32c: 0x46b46c53,
+            .posix: 0xc3a0ef52
+        ],
+        dataChecksums: [
             .md2: "a9b1d6ecfc5b29fc70249b3c25138514",
             .md5: "fe08257dd19c051f6466fb5ecd8936be",
             .sha1: "d25f664243e3e78736ef94db9bd890e969aa42e5",
@@ -81,35 +104,119 @@ let fixtures: [Fixture] = [
 ]
 
 @Test(arguments: fixtures)
-func testChecksums(fixture: Fixture) throws {
+func testIntChecksums(fixture: Fixture) throws {
     let url = fixture.url
-    let data = try Data(contentsOf: url)
 
-    let checksums = Dictionary(uniqueKeysWithValues: fixture.checksums.keys.map {
-        ($0, CSChecksum(algorithm: $0))
-    })
+    var adler32 = CSChecksum.adler32()
+    var crc32 = CSChecksum.crc32()
+    var crc32c = CSChecksum.crc32c()
+    var posix = CSChecksum.posix()
 
     let handle = try FileHandle(forReadingFrom: url)
     defer { _ = try? handle.close() }
 
     while let chunk = try handle.read(upToCount: 1024), !chunk.isEmpty {
-        for eachChecksum in checksums.values {
-            eachChecksum.update(withInputData: chunk)
-        }
+        adler32.update(withInputData: chunk)
+        crc32.update(withInputData: chunk)
+        crc32c.update(withInputData: chunk)
+        posix.update(withInputData: chunk)
     }
 
     // updating with an empty data should have no effect on the result
-    checksums.values.first?.update(withInputData: Data())
+    adler32.update(withInputData: Data())
+    crc32.update(withInputData: Data())
+    crc32c.update(withInputData: Data())
+    posix.update(withInputData: Data())
+
+    let checksums: [CSChecksumAlgorithm: UInt32] = [
+        .adler32: adler32.finalize(),
+        .crc32: crc32.finalize(),
+        .crc32c: crc32c.finalize(),
+        .posix: posix.finalize(),
+    ]
 
     for (algorithm, checksum) in checksums {
-        let expected = fixture.checksums[algorithm]
+        let expected = fixture.intChecksums[algorithm]
 
-        if Data(checksum.checksumData) != expected {
+        if checksum != expected {
             print("failure for \(algorithm)")
         }
 
-        #expect(Data(checksum.checksumData) == expected)
-        #expect(Data(checksum.checksumData) == expected) // make sure it returns the same value when rerun
+        #expect(checksum == expected)
+        #expect(checksum == expected) // make sure it returns the same value when rerun
+    }
+}
+
+@Test(arguments: fixtures)
+func testDataChecksums(fixture: Fixture) throws {
+    let url = fixture.url
+    let data = try Data(contentsOf: url)
+
+    var adler32 = CSChecksum(algorithm: .adler32)
+    var crc32 = CSChecksum(algorithm: .crc32)
+    var crc32c = CSChecksum(algorithm: .crc32c)
+    var posix = CSChecksum(algorithm: .posix)
+    var md2 = CSChecksum(algorithm: .md2)
+    var md5 = CSChecksum(algorithm: .md5)
+    var sha1 = CSChecksum(algorithm: .sha1)
+    var sha224 = CSChecksum.sha224()
+    var sha256 = CSChecksum.sha256()
+    var sha384 = CSChecksum.sha384()
+    var sha512 = CSChecksum.sha512()
+
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { _ = try? handle.close() }
+
+    while let chunk = try handle.read(upToCount: 1024), !chunk.isEmpty {
+        adler32.update(withInputData: chunk)
+        crc32.update(withInputData: chunk)
+        crc32c.update(withInputData: chunk)
+        posix.update(withInputData: chunk)
+        md2.update(withInputData: chunk)
+        md5.update(withInputData: chunk)
+        sha1.update(withInputData: chunk)
+        sha224.update(withInputData: chunk)
+        sha256.update(withInputData: chunk)
+        sha384.update(withInputData: chunk)
+        sha512.update(withInputData: chunk)
+    }
+
+    // updating with an empty data should have no effect on the result
+    adler32.update(withInputData: Data())
+    crc32.update(withInputData: Data())
+    crc32c.update(withInputData: Data())
+    posix.update(withInputData: Data())
+    md2.update(withInputData: Data())
+    md5.update(withInputData: Data())
+    sha1.update(withInputData: Data())
+    sha224.update(withInputData: Data())
+    sha256.update(withInputData: Data())
+    sha384.update(withInputData: Data())
+    sha512.update(withInputData: Data())
+
+    let checksums: [CSChecksumAlgorithm: Data] = [
+        .adler32: Data(adler32.finalize()),
+        .crc32: Data(crc32.finalize()),
+        .crc32c: Data(crc32c.finalize()),
+        .posix: Data(posix.finalize()),
+        .md2: Data(md2.finalize()),
+        .md5: Data(md5.finalize()),
+        .sha1: Data(sha1.finalize()),
+        .sha224: Data(sha224.finalize()),
+        .sha256: Data(sha256.finalize()),
+        .sha384: Data(sha384.finalize()),
+        .sha512: Data(sha512.finalize())
+    ]
+
+    for (algorithm, checksumData) in checksums {
+        let expected = fixture.dataChecksums[algorithm]
+
+        if checksumData != expected {
+            print("failure for \(algorithm)")
+        }
+
+        #expect(checksumData == expected)
+        #expect(checksumData == expected) // make sure it returns the same value when rerun
         #expect(Data(CSChecksum.checksum(for: data, algorithm: algorithm)) == expected)
         #expect(Data(try CSChecksum.checksum(at: FilePath(url.path), algorithm: algorithm)) == expected)
         #expect(Data(try CSChecksum.checksum(at: url, algorithm: algorithm)) == expected)
@@ -118,13 +225,13 @@ func testChecksums(fixture: Fixture) throws {
 
 @available(macOS 12.0, *)
 @Test(arguments: fixtures)
-func testAsyncChecksums(fixture: Fixture) async throws {
+func testAsyncDataChecksums(fixture: Fixture) async throws {
     let url = fixture.url
 
     let handle = try FileHandle(forReadingFrom: url)
     defer { _ = try? handle.close() }
 
-    for (algorithm, expected) in fixture.checksums {
+    for (algorithm, expected) in fixture.dataChecksums {
         let bufSizes = [1024, 10, 1023, 10240]
 
         for eachBufSize in bufSizes {
@@ -161,20 +268,20 @@ let excessivelyLongData: Data = {
         0x72, 0x17, 0x74, 0x1d, 0xa3, 0x33, 0xb5, 0x5b, 0x31, 0x83, 0xf0, 0xfe, 0x74, 0xda, 0xe5, 0xb9,
         0xa8, 0xe8, 0x88, 0xaa, 0x84, 0x43, 0xa5, 0x7e, 0xb6, 0x2e, 0x3a, 0x94, 0x97, 0xa7, 0xf4, 0xcd
     ]))
-] as [(CSChecksum.Algorithm, Data)])
-func testExcessivelyLongInputData(algorithm: CSChecksum.Algorithm, expected: Data) {
+] as [(CSChecksumAlgorithm, Data)])
+func testExcessivelyLongInputData(algorithm: CSChecksumAlgorithm, expected: Data) {
     #expect(Data(CSChecksum.checksum(for: excessivelyLongData, algorithm: algorithm)) == expected)
 }
 
 @Test
 func testAlgorithmNames() {
-    #expect(CSChecksum.Algorithm.adler32.description == "Adler32")
-    #expect(CSChecksum.Algorithm.crc32.description == "CRC32")
-    #expect(CSChecksum.Algorithm.md2.description == "MD2")
-    #expect(CSChecksum.Algorithm.md5.description == "MD5")
-    #expect(CSChecksum.Algorithm.sha1.description == "SHA1")
-    #expect(CSChecksum.Algorithm.sha224.description == "SHA224")
-    #expect(CSChecksum.Algorithm.sha256.description == "SHA256")
-    #expect(CSChecksum.Algorithm.sha384.description == "SHA384")
-    #expect(CSChecksum.Algorithm.sha512.description == "SHA512")
+    #expect(CSChecksumAlgorithm.adler32.description == "Adler32")
+    #expect(CSChecksumAlgorithm.crc32.description == "CRC32")
+    #expect(CSChecksumAlgorithm.md2.description == "MD2")
+    #expect(CSChecksumAlgorithm.md5.description == "MD5")
+    #expect(CSChecksumAlgorithm.sha1.description == "SHA1")
+    #expect(CSChecksumAlgorithm.sha224.description == "SHA224")
+    #expect(CSChecksumAlgorithm.sha256.description == "SHA256")
+    #expect(CSChecksumAlgorithm.sha384.description == "SHA384")
+    #expect(CSChecksumAlgorithm.sha512.description == "SHA512")
 }

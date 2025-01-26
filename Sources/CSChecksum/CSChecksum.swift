@@ -5,66 +5,23 @@
 //  Copyright © 2014-2025 Charles Srstka. All rights reserved.
 //
 
-import System
-import zlib
 import CommonCrypto
 import CSDataProtocol
+import System
+import zlib
 
-public class CSChecksum {
-    package static let bufsize = 1024 * 10
+package let defaultBufsize = 1024 * 10
 
-    public enum Algorithm: UInt8, CustomStringConvertible, Sendable {
-        case adler32
-        case bsd
-        case crc32
-        case crc32c
-        case md2     // WARNING: Not secure. Included for use in parsing legacy file types only.
-        case md5     // WARNING: Not secure. Included for use in parsing legacy file types only.
-        case sha1    // WARNING: Not secure. Included for use in parsing legacy file types only.
-        case sha224
-        case sha256
-        case sha384
-        case sha512
-
-        public var description: String {
-            switch self {
-            case .adler32:
-                return "Adler32"
-            case .bsd:
-                return "BSD"
-            case .crc32:
-                return "CRC32"
-            case .crc32c:
-                return "CRC32C"
-            case .md2:
-                return "MD2"
-            case .md5:
-                return "MD5"
-            case .sha1:
-                return "SHA1"
-            case .sha224:
-                return "SHA224"
-            case .sha256:
-                return "SHA256"
-            case .sha384:
-                return "SHA384"
-            case .sha512:
-                return "SHA512"
-            }
-        }
-    }
-
+public struct CSChecksum<Raw: RawValue>: ~Copyable {
     private enum Backing {
         case bsd(BSDCksumState)
         case hardwareCRC32C(UInt32)
         case data(ContiguousArray<UInt8>)
-        case md2(UnsafeMutableRawPointer)
-        case md5(UnsafeMutableRawPointer)
+        case rawPointer(UnsafeMutableRawPointer, _ finalize: (UnsafeMutableRawPointer) -> ContiguousArray<UInt8>)
         case sha1(UnsafeMutablePointer<CC_SHA1_CTX>)
         case sha256(UnsafeMutablePointer<CC_SHA256_CTX>)
         case sha512(UnsafeMutablePointer<CC_SHA512_CTX>)
         case zlib(uLong)
-
     }
 
     private struct AsyncDataChunkSequence<Base: AsyncSequence>: AsyncSequence where Base.Element == UInt8 {
@@ -103,71 +60,93 @@ public class CSChecksum {
         }
     }
 
-    private var algorithm: Algorithm
+    private var algorithm: CSChecksumAlgorithm
     private var backing: Backing
 
-    public static func checksum(for data: some DataProtocol, algorithm: Algorithm) -> some DataProtocol {
-        let cksum = CSChecksum(algorithm: algorithm)
+    public static func checksum(
+        for data: some DataProtocol,
+        algorithm: CSChecksumAlgorithm
+    ) -> some DataProtocol where Raw == ContiguousArray<UInt8> {
+        var cksum = CSChecksum(algorithm: algorithm)
 
         cksum.update(withInputData: data)
 
-        return cksum.checksumData
+        return cksum.finalize()
     }
 
     public static func checksum<S: AsyncSequence>(
         for data: S,
-        algorithm: Algorithm,
-        bufferSize: Int = 10240
-    ) async throws -> some DataProtocol where S.Element == UInt8 {
-        try await self.checksum(for: AsyncDataChunkSequence(base: data, bufferSize: bufferSize), algorithm: algorithm)
+        algorithm: CSChecksumAlgorithm,
+        bufferSize: Int? = nil
+    ) async throws -> some DataProtocol where S.Element == UInt8, Raw == ContiguousArray<UInt8> {
+        try await self.checksum(
+            for: AsyncDataChunkSequence(base: data, bufferSize: bufferSize ?? defaultBufsize),
+            algorithm: algorithm
+        )
     }
 
     public static func checksum<S: AsyncSequence>(
         for data: S,
-        algorithm: Algorithm
-    ) async throws -> some DataProtocol where S.Element: DataProtocol {
-        let cksum = CSChecksum(algorithm: algorithm)
+        algorithm: CSChecksumAlgorithm
+    ) async throws -> some DataProtocol where S.Element: DataProtocol, Raw == ContiguousArray<UInt8> {
+        var cksum = CSChecksum(algorithm: algorithm)
 
         for try await eachChunk in data {
             cksum.update(withInputData: eachChunk)
         }
 
-        return cksum.checksumData
+        return cksum.finalize()
     }
 
     @available(macOS 11.0, macCatalyst 14.0, iOS 14.0, tvOS 14.0, watchOS 7.0, *)
-    public static func checksum(at path: FilePath, algorithm: Algorithm) throws -> some DataProtocol {
+    public static func checksum(
+        at path: FilePath,
+        algorithm: CSChecksumAlgorithm
+    ) throws -> some DataProtocol where Raw == ContiguousArray<UInt8> {
         let desc = try FileDescriptor.open(path, .readOnly)
         defer { _ = try? desc.close() }
 
-        let cksum = CSChecksum(algorithm: algorithm)
+        var cksum = CSChecksum(algorithm: algorithm)
 
-        let buf = UnsafeMutableRawBufferPointer.allocate(byteCount: CSChecksum.bufsize, alignment: 1)
+        let buf = UnsafeMutableRawBufferPointer.allocate(byteCount: defaultBufsize, alignment: 1)
         defer { buf.deallocate() }
 
         while case let bytesRead = try desc.read(into: buf), bytesRead != 0 {
             cksum.update(withInputData: UnsafeRawBufferPointer(buf).prefix(bytesRead))
         }
 
-        return cksum.checksumData
+        return cksum.finalize()
     }
 
-    public init(algorithm: Algorithm) {
+    public static func adler32() -> Self where Raw == UInt32 { .init(algorithm: .adler32, returnType: UInt32.self) }
+    public static func posix() -> Self where Raw == UInt32 { .init(algorithm: .posix, returnType: UInt32.self) }
+    public static func crc32() -> Self where Raw == UInt32 { .init(algorithm: .crc32, returnType: UInt32.self) }
+    public static func crc32c() -> Self where Raw == UInt32 { .init(algorithm: .crc32c, returnType: UInt32.self) }
+    public static func sha224() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha224) }
+    public static func sha256() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha256) }
+    public static func sha384() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha384) }
+    public static func sha512() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha512) }
+
+    public init(algorithm: CSChecksumAlgorithm) where Raw == ContiguousArray<UInt8> {
+        self.init(algorithm: algorithm, returnType: ContiguousArray<UInt8>.self)
+    }
+
+    private init(algorithm: CSChecksumAlgorithm, returnType: Raw.Type) {
         self.algorithm = algorithm
 
         switch algorithm {
         case .adler32:
-            self.backing = .zlib(adler32(0, nil, 0))
-        case .bsd:
+            self.backing = .zlib(zlib.adler32(0, nil, 0))
+        case .posix:
             self.backing = .bsd(BSDCksumState())
         case .crc32:
-            self.backing = .zlib(crc32(0, nil, 0))
+            self.backing = .zlib(zlib.crc32(0, nil, 0))
         case.crc32c:
             self.backing = .hardwareCRC32C(0)
         case .md2:
-            self.backing = .md2((CSChecksum.self as DeprecatedStuff.Type).md2Init())
+            self.backing = .rawPointer(deprecatedStuff.md2Init(), deprecatedStuff.md2Finalize)
         case .md5:
-            self.backing = .md5((CSChecksum.self as DeprecatedStuff.Type).md5Init())
+            self.backing = .rawPointer(deprecatedStuff.md5Init(), deprecatedStuff.md5Finalize)
         case .sha1:
             let ctx = UnsafeMutablePointer<CC_SHA1_CTX>.allocate(capacity: 1)
             CC_SHA1_Init(ctx)
@@ -195,9 +174,8 @@ public class CSChecksum {
         switch self.backing {
         case .zlib, .data, .bsd, .hardwareCRC32C:
             break
-        case let .md2(ptr):
-            ptr.deallocate()
-        case let .md5(ptr):
+        case let .rawPointer(ptr, finalize):
+            _ = finalize(ptr)
             ptr.deallocate()
         case let .sha1(ptr):
             ptr.deallocate()
@@ -208,13 +186,13 @@ public class CSChecksum {
         }
     }
 
-    public func update(withInputData data: some DataProtocol) {
+    public mutating func update(withInputData data: some DataProtocol) {
         if data.isEmpty { return }
 
         let maxLength = switch self.algorithm {
         case .adler32, .crc32, .crc32c:
             Int(Int32.max)
-        case .bsd:
+        case .posix:
             Int.max
         case .md2, .md5, .sha1, .sha224, .sha256, .sha384, .sha512:
             Int(CC_LONG.max)
@@ -236,17 +214,17 @@ public class CSChecksum {
 
                 switch (self.algorithm, self.backing) {
                 case (.adler32, .zlib(let cksum)):
-                    self.backing = .zlib(adler32(cksum, ptr, uInt(bytes.count)))
-                case (.bsd, .bsd(let state)):
+                    self.backing = .zlib(zlib.adler32(cksum, ptr, uInt(bytes.count)))
+                case (.posix, .bsd(let state)):
                     state.update(data: bytes)
                 case (.crc32, .zlib(let cksum)):
-                    self.backing = .zlib(crc32(cksum, ptr, uInt(bytes.count)))
+                    self.backing = .zlib(zlib.crc32(cksum, ptr, uInt(bytes.count)))
                 case (.crc32c, .hardwareCRC32C(let cksum)):
                     self.backing = .hardwareCRC32C(HardwareCRC32.crc32c(bytes: rawBytes, initialValue: cksum))
-                case (.md2, .md2(let ctx)):
-                    (self as DeprecatedStuff).md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
-                case (.md5, .md5(let ctx)):
-                    (self as DeprecatedStuff).md5Update(ctx: ctx, ptr: ptr, count: bytes.count)
+                case (.md2, .rawPointer(let ctx, _)):
+                    deprecatedStuff.md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
+                case (.md5, .rawPointer(let ctx, _)):
+                    deprecatedStuff.md5Update(ctx: ctx, ptr: ptr, count: bytes.count)
                 case (.sha1, .sha1(let ctx)):
                     CC_SHA1_Update(ctx, ptr, CC_LONG(bytes.count))
                 case (.sha224, .sha256(let ctx)):
@@ -264,7 +242,7 @@ public class CSChecksum {
         }
     }
 
-    public var checksumData: some DataProtocol {
+    public mutating func finalize() -> Raw {
         func makeData(count: Int, closure: (UnsafeMutablePointer<UInt8>) -> ()) -> ContiguousArray<UInt8> {
             .init(unsafeUninitializedCapacity: count) { ptr, outCount in
                 closure(ptr.baseAddress!)
@@ -274,36 +252,22 @@ public class CSChecksum {
 
         switch self.backing {
         case .hardwareCRC32C(let cksum):
-            var crc32 = UInt32(cksum)
-
-            return withUnsafeBytes(of: &crc32) { ContiguousArray($0) }
+            return Raw(checksumInteger: cksum)
         case let .zlib(cksum):
-            var crc32 = UInt32(cksum)
-
-            return withUnsafeBytes(of: &crc32) { ContiguousArray($0) }
+            return Raw(checksumInteger: UInt32(cksum))
         case let .bsd(state):
-            var crc = state.crc
-
-            return withUnsafeBytes(of: &crc) { ContiguousArray($0) }
-        case let .md2(ctx):
-            let data = (self as DeprecatedStuff).md2Finalize(ctx: ctx)
-
+            return Raw(checksumInteger: state.crc)
+        case let .rawPointer(ctx, finalize):
+            let data = finalize(ctx)
             self.backing = .data(data)
-
-            return data
-        case let .md5(ctx):
-            let data = (self as DeprecatedStuff).md5Finalize(ctx: ctx)
-
-            self.backing = .data(data)
-
-            return data
+            return Raw(checksumBytes: data)
         case let .sha1(ctx):
             let data = makeData(count: Int(CC_SHA1_DIGEST_LENGTH)) { _ = CC_SHA1_Final($0, ctx) }
 
             ctx.deallocate()
             self.backing = .data(data)
 
-            return data
+            return Raw(checksumBytes: data)
         case let .sha256(ctx):
             switch self.algorithm {
             case .sha224:
@@ -312,14 +276,14 @@ public class CSChecksum {
                 ctx.deallocate()
                 self.backing = .data(data)
 
-                return data
+                return Raw(checksumBytes: data)
             case .sha256:
                 let data = makeData(count: Int(CC_SHA256_DIGEST_LENGTH)) { _ = CC_SHA256_Final($0, ctx) }
 
                 ctx.deallocate()
                 self.backing = .data(data)
 
-                return data
+                return Raw(checksumBytes: data)
             default:
                 fatalError("Illegal backing/algorithm combo")
             }
@@ -331,88 +295,19 @@ public class CSChecksum {
                 ctx.deallocate()
                 self.backing = .data(data)
 
-                return data
+                return Raw(checksumBytes: data)
             case .sha512:
                 let data = makeData(count: Int(CC_SHA512_DIGEST_LENGTH)) { _ = CC_SHA512_Final($0, ctx) }
 
                 ctx.deallocate()
                 self.backing = .data(data)
 
-                return data
+                return Raw(checksumBytes: data)
             default:
                 fatalError("Illegal backing/algorithm combo")
             }
         case let .data(data):
-            return data
-        }
-    }
-}
-
-private protocol DeprecatedStuff {
-    static func md2Init() -> UnsafeMutableRawPointer
-    static func md5Init() -> UnsafeMutableRawPointer
-
-    func md2Update(ctx: UnsafeMutableRawPointer, ptr: UnsafePointer<UInt8>, count: Int)
-    func md5Update(ctx: UnsafeMutableRawPointer, ptr: UnsafePointer<UInt8>, count: Int)
-
-    func md2Finalize(ctx _ctx: UnsafeMutableRawPointer) -> ContiguousArray<UInt8>
-    func md5Finalize(ctx _ctx: UnsafeMutableRawPointer) -> ContiguousArray<UInt8>
-}
-
-extension CSChecksum: DeprecatedStuff {
-    @available(macOS, deprecated: 10.15)
-    static func md2Init() -> UnsafeMutableRawPointer {
-        let ctx = UnsafeMutablePointer<CC_MD2_CTX>.allocate(capacity: 1)
-
-        CC_MD2_Init(ctx)
-
-        return UnsafeMutableRawPointer(ctx)
-    }
-
-    @available(macOS, deprecated: 10.15)
-    static func md5Init() -> UnsafeMutableRawPointer {
-        let ctx = UnsafeMutablePointer<CC_MD5_CTX>.allocate(capacity: 1)
-
-        CC_MD5_Init(ctx)
-
-        return UnsafeMutableRawPointer(ctx)
-    }
-
-    @available(macOS, deprecated: 10.15)
-    func md2Update(ctx: UnsafeMutableRawPointer, ptr: UnsafePointer<UInt8>, count: Int) {
-        CC_MD2_Update(ctx.bindMemory(to: CC_MD2_CTX.self, capacity: 1), ptr, CC_LONG(count))
-    }
-
-    @available(macOS, deprecated: 10.15)
-    func md5Update(ctx: UnsafeMutableRawPointer, ptr: UnsafePointer<UInt8>, count: Int) {
-        CC_MD5_Update(ctx.bindMemory(to: CC_MD5_CTX.self, capacity: 1), ptr, CC_LONG(count))
-    }
-
-    @available(macOS, deprecated: 10.15)
-    func md2Finalize(ctx _ctx: UnsafeMutableRawPointer) -> ContiguousArray<UInt8> {
-        let count = Int(CC_MD2_DIGEST_LENGTH)
-
-        return .init(unsafeUninitializedCapacity: count) { ptr, outCount in
-            let ctx = _ctx.bindMemory(to: CC_MD2_CTX.self, capacity: 1)
-
-            _ = CC_MD2_Final(ptr.baseAddress, ctx)
-            outCount = count
-
-            ctx.deallocate()
-        }
-    }
-
-    @available(macOS, deprecated: 10.15)
-    func md5Finalize(ctx _ctx: UnsafeMutableRawPointer) -> ContiguousArray<UInt8> {
-        let count = Int(CC_MD5_DIGEST_LENGTH)
-
-        return .init(unsafeUninitializedCapacity: count) { ptr, outCount in
-            let ctx = _ctx.bindMemory(to: CC_MD5_CTX.self, capacity: 1)
-
-            _ = CC_MD5_Final(ptr.baseAddress, ctx)
-            outCount = count
-
-            ctx.deallocate()
+            return Raw(checksumBytes: data)
         }
     }
 }
