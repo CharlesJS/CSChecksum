@@ -15,7 +15,9 @@ package let defaultBufsize = 1024 * 10
 public struct CSChecksum<Raw: RawValue>: ~Copyable {
     private enum Backing {
         case bsd(BSDCksumState)
-        case hardwareCRC32C(UInt32)
+        case fusionCRC32(UInt32)
+        case fusionCRC32C(UInt32)
+        case tabularCRC32(UInt32, [UInt32])
         case data(ContiguousArray<UInt8>)
         case rawPointer(UnsafeMutableRawPointer, _ finalize: (UnsafeMutableRawPointer) -> ContiguousArray<UInt8>)
         case sha1(UnsafeMutablePointer<CC_SHA1_CTX>)
@@ -140,9 +142,17 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         case .posix:
             self.backing = .bsd(BSDCksumState())
         case .crc32:
-            self.backing = .zlib(zlib.crc32(0, nil, 0))
+            self.backing = if supportsFusionCRC32 {
+                .fusionCRC32(0)
+            } else {
+                .zlib(zlib.crc32(0, nil, 0))
+            }
         case.crc32c:
-            self.backing = .hardwareCRC32C(0)
+            self.backing = if supportsFusionCRC32C {
+                .fusionCRC32C(0)
+            } else {
+                .tabularCRC32(0, TabularCRC32.getCRC32Table(poly: TabularCRC32.crc32CReversePoly))
+            }
         case .md2:
             self.backing = .rawPointer(deprecatedStuff.md2Init(), deprecatedStuff.md2Finalize)
         case .md5:
@@ -172,7 +182,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 
     deinit {
         switch self.backing {
-        case .zlib, .data, .bsd, .hardwareCRC32C:
+        case .zlib, .data, .bsd, .fusionCRC32, .fusionCRC32C, .tabularCRC32:
             break
         case let .rawPointer(ptr, finalize):
             _ = finalize(ptr)
@@ -217,10 +227,18 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
                     self.backing = .zlib(zlib.adler32(cksum, ptr, uInt(bytes.count)))
                 case (.posix, .bsd(let state)):
                     state.update(data: bytes)
-                case (.crc32, .zlib(let cksum)):
-                    self.backing = .zlib(zlib.crc32(cksum, ptr, uInt(bytes.count)))
-                case (.crc32c, .hardwareCRC32C(let cksum)):
-                    self.backing = .hardwareCRC32C(HardwareCRC32.crc32c(bytes: rawBytes, initialValue: cksum))
+#if arch(arm64)
+                case (.crc32, .fusionCRC32(let cksum)):
+                    self.backing = .fusionCRC32(FusionCRC32.crc32(bytes: rawBytes, initialValue: cksum))
+#endif
+                case (.crc32c, .fusionCRC32C(let cksum)):
+                    self.backing = .fusionCRC32C(FusionCRC32C.crc32c(bytes: rawBytes, initialValue: cksum))
+                case (.crc32, .tabularCRC32(let cksum, let table)):
+                    let newCksum = TabularCRC32.calculateCRC32(rawBytes, initialValue: cksum, table: table)
+                    self.backing = .tabularCRC32(newCksum, table)
+                case (.crc32c, .tabularCRC32(let cksum, let table)):
+                    let newCksum = TabularCRC32.calculateCRC32(rawBytes, initialValue: cksum, table: table)
+                    self.backing = .tabularCRC32(newCksum, table)
                 case (.md2, .rawPointer(let ctx, _)):
                     deprecatedStuff.md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
                 case (.md5, .rawPointer(let ctx, _)):
@@ -251,7 +269,11 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         }
 
         switch self.backing {
-        case .hardwareCRC32C(let cksum):
+        case .fusionCRC32(let cksum):
+            return Raw(checksumInteger: cksum)
+        case .fusionCRC32C(let cksum):
+            return Raw(checksumInteger: cksum)
+        case .tabularCRC32(let cksum, _):
             return Raw(checksumInteger: cksum)
         case let .zlib(cksum):
             return Raw(checksumInteger: UInt32(cksum))

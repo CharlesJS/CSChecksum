@@ -1,5 +1,5 @@
 //
-//  HardwareCRC32.swift
+//  FusionCRC32C.swift
 //  CSChecksum
 //
 //  Created by Charles Srstka on 1/20/25.
@@ -48,7 +48,7 @@ private func eor3(_ a: DoubleQuad, _ b: DoubleQuad, _ c: DoubleQuad) -> DoubleQu
 
 #endif
 
-public struct HardwareCRC32 {
+public struct FusionCRC32C {
     private static func xnmodp(_ _n: UInt64) -> UInt32 {
         // x^n mod P, in log(n) time
 
@@ -96,7 +96,7 @@ public struct HardwareCRC32 {
         guard let baseAddress = bytes.baseAddress else { return initialValue }
 
         var crc0 = ~initialValue
-        let aligned = baseAddress.alignedUp(for: UInt64.self)
+        let aligned = baseAddress.alignedUp(for: DoubleQuad.self)
 
         let toAlign = min(aligned - baseAddress, bytes.count)
         for byte in bytes.prefix(toAlign) {
