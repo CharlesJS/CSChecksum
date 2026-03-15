@@ -36,6 +36,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-crypto.git", "1.0.0" ..< "5.0.0"),
         .package(url: "https://github.com/CharlesJS/SyncPolyfill", from: "0.1.1"),
+        .package(url: "https://github.com/apple/swift-system", from: "1.6.1"),
     ],
     targets: [
         .target(
@@ -45,8 +46,9 @@ let package = Package(
             name: "CSChecksum",
             dependencies: [
                 "asm",
-                "SyncPolyfill",
-                .product(name: "Crypto", package: "swift-crypto", condition: .when(traits: ["Crypto"]))
+                .product(name: "SyncPolyfill", package: "SyncPolyfill"),
+                .product(name: "Crypto", package: "swift-crypto", condition: .when(traits: ["Crypto"])),
+                .product(name: "SystemPackage", package: "swift-system", condition: .when(platforms: [.linux]))
             ],
             swiftSettings: swiftSettings
         ),

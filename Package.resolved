@@ -1,13 +1,22 @@
 {
-  "originHash" : "8c0bbce829f3f3ae0062ff4a19c3fa77a3b12bad6c5b6923eb4f79d6c2ea6ae6",
+  "originHash" : "627f7e540b19c2d01bac6b3c328449c76aa57c5d31fcbe0e0c124d55b37abde4",
   "pins" : [
+    {
+      "identity" : "swift-system",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-system",
+      "state" : {
+        "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
+        "version" : "1.6.4"
+      }
+    },
     {
       "identity" : "syncpolyfill",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/CharlesJS/SyncPolyfill",
       "state" : {
-        "revision" : "e91d684e29f0aed3ff1f400769e87eb0854ae981",
-        "version" : "0.1.1"
+        "revision" : "c18c41fa1b635def5dda128c39243542b187116a",
+        "version" : "0.1.2"
       }
     }
   ],
