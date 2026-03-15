@@ -7,13 +7,16 @@
 
 import CommonCrypto
 import System
-import zlib
 
 #if Foundation
 #if canImport(FoundationEssentials)
 import FoundationEssentials
 #else
 import Foundation
+#endif
+
+#if ZLib
+import zlib
 #endif
 
 public typealias Bytes = DataProtocol
@@ -47,7 +50,9 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         case sha1(UnsafeMutablePointer<CC_SHA1_CTX>)
         case sha256(UnsafeMutablePointer<CC_SHA256_CTX>)
         case sha512(UnsafeMutablePointer<CC_SHA512_CTX>)
+#if ZLib
         case zlib(uLong)
+#endif
     }
 
     private struct AsyncDataChunkSequence<Base: AsyncSequence>: AsyncSequence where Base.Element == UInt8 {
@@ -184,12 +189,20 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 
         switch algorithm {
         case .adler32:
+#if ZLib
             self.backing = .zlib(zlib.adler32(0, nil, 0))
+#else
+            self.backing = .adler32(1)
+#endif
         case .crc32:
             self.backing = if supportsFusionCRC32 {
                 .fusionCRC32(0)
             } else {
+#if ZLib
                 .zlib(zlib.crc32(0, nil, 0))
+#else
+                .tabularCRC32(0, TabularCRC32.getCRC32Table(poly: TabularCRC32.crc32ReversePoly))
+#endif
             }
         case .crc32c:
             self.backing = if supportsFusionCRC32C {
@@ -230,8 +243,12 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 
     deinit {
         switch self.backing {
-        case .adler32, .zlib, .data, .bsd, .fletcher64, .fusionCRC32, .fusionCRC32C, .tabularCRC32:
+        case .adler32, .data, .bsd, .fletcher64, .fusionCRC32, .fusionCRC32C, .tabularCRC32:
             break
+#if ZLib
+        case .zlib:
+            break
+#endif
         case let .rawPointer(ptr, finalize):
             _ = finalize(ptr)
             ptr.deallocate()
@@ -273,8 +290,10 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
                 switch (self.algorithm, self.backing) {
                 case (.adler32, .adler32(let cksum)):
                     self.backing = .adler32(Fletcher.adler32(bytes: rawBytes, initialValue: cksum))
+#if ZLib
                 case (.adler32, .zlib(let cksum)):
                     self.backing = .zlib(zlib.adler32(cksum, ptr, uInt(bytes.count)))
+#endif
                 case (.posix, .bsd(let state)):
                     state.update(data: bytes)
 #if arch(arm64)
@@ -355,8 +374,10 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
             return Raw(checksumInteger: cksum)
         case .tabularCRC32(let cksum, _):
             return Raw(checksumInteger: cksum)
+#if ZLib
         case let .zlib(cksum):
             return Raw(checksumInteger: UInt32(cksum))
+#endif
         case let .bsd(state):
             return Raw(checksumInteger: state.crc)
         case let .rawPointer(ctx, finalize):
