@@ -1,5 +1,5 @@
 {
-  "originHash" : "1b31a56769b6b665709e74f85fcb900ec9e3beb17bcc84d5d49cbb90988ed8fc",
+  "originHash" : "5c5860271d3e724c3405b7028c97db3bbbe4bf8e3ca9c55bd6d1cb7c901c2e1c",
   "pins" : [
     {
       "identity" : "csdataprotocol",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/CharlesJS/SyncPolyfill",
       "state" : {
-        "revision" : "aa37b7f0d80031c0081aa3a8de7e0fee5717f806",
-        "version" : "0.1.0"
+        "revision" : "e91d684e29f0aed3ff1f400769e87eb0854ae981",
+        "version" : "0.1.1"
       }
     }
   ],

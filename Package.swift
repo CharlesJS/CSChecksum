@@ -34,7 +34,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/CharlesJS/CSDataProtocol", from: "0.1.0"),
-        .package(url: "https://github.com/CharlesJS/SyncPolyfill", from: "0.1.0"),
+        .package(url: "https://github.com/CharlesJS/SyncPolyfill", from: "0.1.1"),
     ],
     targets: [
         .target(

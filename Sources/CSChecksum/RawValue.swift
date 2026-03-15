@@ -33,3 +33,14 @@ extension UInt32: RawValue {
         self = UInt32(checksumInteger)
     }
 }
+
+extension UInt64: RawValue {
+    public init(checksumBytes: ContiguousArray<UInt8>) {
+        precondition(checksumBytes.count == 8)
+        self = checksumBytes.withUnsafeBytes { $0.withMemoryRebound(to: UInt64.self) { $0[0] } }
+    }
+
+    public init(checksumInteger: some FixedWidthInteger) {
+        self = UInt64(checksumInteger)
+    }
+}

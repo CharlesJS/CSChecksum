@@ -14,7 +14,9 @@ package let defaultBufsize = 1024 * 10
 
 public struct CSChecksum<Raw: RawValue>: ~Copyable {
     private enum Backing {
+        case adler32(UInt32)
         case bsd(BSDCksumState)
+        case fletcher64(lo: UInt64, hi: UInt64, byteBuffer: ContiguousArray<UInt8>)
         case fusionCRC32(UInt32)
         case fusionCRC32C(UInt32)
         case tabularCRC32(UInt32, [UInt32])
@@ -124,6 +126,9 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     public static func posix() -> Self where Raw == UInt32 { .init(algorithm: .posix, returnType: UInt32.self) }
     public static func crc32() -> Self where Raw == UInt32 { .init(algorithm: .crc32, returnType: UInt32.self) }
     public static func crc32c() -> Self where Raw == UInt32 { .init(algorithm: .crc32c, returnType: UInt32.self) }
+    public static func fletcher64(withCheckBytes: Bool = true) -> Self where Raw == UInt64 {
+        .init(algorithm: .fletcher64(withCheckBytes: withCheckBytes), returnType: UInt64.self)
+    }
     public static func sha224() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha224) }
     public static func sha256() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha256) }
     public static func sha384() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha384) }
@@ -139,20 +144,22 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         switch algorithm {
         case .adler32:
             self.backing = .zlib(zlib.adler32(0, nil, 0))
-        case .posix:
-            self.backing = .bsd(BSDCksumState())
         case .crc32:
             self.backing = if supportsFusionCRC32 {
                 .fusionCRC32(0)
             } else {
                 .zlib(zlib.crc32(0, nil, 0))
             }
-        case.crc32c:
+        case .crc32c:
             self.backing = if supportsFusionCRC32C {
                 .fusionCRC32C(0)
             } else {
                 .tabularCRC32(0, TabularCRC32.getCRC32Table(poly: TabularCRC32.crc32CReversePoly))
             }
+        case .fletcher64:
+            self.backing = .fletcher64(lo: 0, hi: 0, byteBuffer: [])
+        case .posix:
+            self.backing = .bsd(BSDCksumState())
         case .md2:
             self.backing = .rawPointer(deprecatedStuff.md2Init(), deprecatedStuff.md2Finalize)
         case .md5:
@@ -182,7 +189,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 
     deinit {
         switch self.backing {
-        case .zlib, .data, .bsd, .fusionCRC32, .fusionCRC32C, .tabularCRC32:
+        case .adler32, .zlib, .data, .bsd, .fletcher64, .fusionCRC32, .fusionCRC32C, .tabularCRC32:
             break
         case let .rawPointer(ptr, finalize):
             _ = finalize(ptr)
@@ -202,7 +209,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         let maxLength = switch self.algorithm {
         case .adler32, .crc32, .crc32c:
             Int(Int32.max)
-        case .posix:
+        case .fletcher64, .posix:
             Int.max
         case .md2, .md5, .sha1, .sha224, .sha256, .sha384, .sha512:
             Int(CC_LONG.max)
@@ -223,6 +230,8 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
                 guard let ptr = bytes.baseAddress else { return }
 
                 switch (self.algorithm, self.backing) {
+                case (.adler32, .adler32(let cksum)):
+                    self.backing = .adler32(Fletcher.adler32(bytes: rawBytes, initialValue: cksum))
                 case (.adler32, .zlib(let cksum)):
                     self.backing = .zlib(zlib.adler32(cksum, ptr, uInt(bytes.count)))
                 case (.posix, .bsd(let state)):
@@ -239,6 +248,25 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
                 case (.crc32c, .tabularCRC32(let cksum, let table)):
                     let newCksum = TabularCRC32.calculateCRC32(rawBytes, initialValue: cksum, table: table)
                     self.backing = .tabularCRC32(newCksum, table)
+                case (.fletcher64, .fletcher64(lo: var lo, hi: var hi, byteBuffer: var byteBuffer)):
+                    let rem = rawBytes.count % 4
+
+                    if _fastPath(rem == 0 && byteBuffer.isEmpty) {
+                        (lo, hi) = Fletcher.fletcher64(bytes: rawBytes, lowSum: lo, highSum: hi)
+                    } else if byteBuffer.isEmpty {
+                        (lowSum: lo, highSum: hi) = Fletcher.fletcher64(bytes: rawBytes, lowSum: lo, highSum: hi)
+
+                        byteBuffer.replaceSubrange(byteBuffer.indices, with: rawBytes.suffix(rem))
+                    } else {
+                        (byteBuffer + rawBytes).withUnsafeBytes { newRawBytes in
+                            (lowSum: lo, highSum: hi) = Fletcher.fletcher64(bytes: newRawBytes, lowSum: lo, highSum: hi)
+
+                            let newRem = newRawBytes.count % 4
+                            byteBuffer.replaceSubrange(byteBuffer.indices, with: newRawBytes.suffix(newRem))
+                        }
+                    }
+
+                    self.backing = .fletcher64(lo: lo, hi: hi, byteBuffer: byteBuffer)
                 case (.md2, .rawPointer(let ctx, _)):
                     deprecatedStuff.md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
                 case (.md5, .rawPointer(let ctx, _)):
@@ -269,6 +297,17 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         }
 
         switch self.backing {
+        case .adler32(let cksum):
+            return Raw(checksumInteger: cksum)
+        case .fletcher64(lo: let lo, hi: let hi, byteBuffer: _):
+            let cksum: UInt64
+            if case .fletcher64(let withCheckBytes) = self.algorithm, withCheckBytes {
+                cksum = Fletcher.fletcher64Finalize(lowSum: lo, highSum: hi, includeCheckBytes: true)
+            } else {
+                cksum = Fletcher.fletcher64Finalize(lowSum: lo, highSum: hi, includeCheckBytes: false)
+            }
+
+            return Raw(checksumInteger: cksum)
         case .fusionCRC32(let cksum):
             return Raw(checksumInteger: cksum)
         case .fusionCRC32C(let cksum):

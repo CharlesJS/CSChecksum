@@ -7,7 +7,7 @@ import System
 
 struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendable {
     let url: URL
-    let intChecksums: [CSChecksumAlgorithm : UInt32]
+    let intChecksums: [CSChecksumAlgorithm : (UInt, Int)]
     let dataChecksums: [CSChecksumAlgorithm : Data]
 
     var testDescription: String { url.lastPathComponent }
@@ -15,13 +15,13 @@ struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendab
 
     init(
         name: String,
-        intChecksums: [CSChecksumAlgorithm: UInt32],
+        intChecksums: [CSChecksumAlgorithm: (UInt, Int)],
         dataChecksums: [CSChecksumAlgorithm: String]
     ) {
         self.url = Bundle.module.url(forResource: name, withExtension: "", subdirectory: "fixtures")!
 
         self.intChecksums = intChecksums
-        let intDataChecksums = intChecksums.mapValues { Self.convertChecksumInt($0) }
+        let intDataChecksums = intChecksums.mapValues { Self.convertChecksumInt($0.0, $0.1) }
         self.dataChecksums = dataChecksums.mapValues { Self.convertChecksumString($0) }.merging(intDataChecksums) { $1 }
     }
 
@@ -36,10 +36,10 @@ struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendab
         return data
     }
 
-    private static func convertChecksumInt<I: FixedWidthInteger>(_ cksum: I) -> Data {
+    private static func convertChecksumInt<I: FixedWidthInteger>(_ cksum: I, _ length: Int) -> Data {
         var i = cksum
 
-        return withUnsafeBytes(of: &i) { Data($0) }
+        return withUnsafeBytes(of: &i) { Data($0.prefix(length)) }
     }
 }
 
@@ -47,10 +47,10 @@ let fixtures: [Fixture] = [
     Fixture(
         name: "gettysburg.txt",
         intChecksums: [
-            .adler32: 0xa6f11300,
-            .crc32: 0x2eb43d19,
-            .crc32c: 0x11e42979,
-            .posix: 0x5ec96f92
+            .adler32: (0xa6f11300, 4),
+            .crc32: (0x2eb43d19, 4),
+            .crc32c: (0x11e42979, 4),
+            .posix: (0x5ec96f92, 4)
         ],
         dataChecksums: [
             .md2: "a9095080724e5beffc35ed027f0d84a7",
@@ -66,10 +66,10 @@ let fixtures: [Fixture] = [
     Fixture(
         name: "test.mp4",
         intChecksums: [
-            .adler32: 0x15d66bec,
-            .crc32: 0xc3a867a9,
-            .crc32c: 0x31182ee1,
-            .posix: 0xf63439f7
+            .adler32: (0x15d66bec, 4),
+            .crc32: (0xc3a867a9, 4),
+            .crc32c: (0x31182ee1, 4),
+            .posix: (0xf63439f7, 4)
         ],
         dataChecksums: [
             .md2: "6e67e0fdb7f7e66b8a7bff24978c2e2e",
@@ -85,10 +85,10 @@ let fixtures: [Fixture] = [
     Fixture(
         name: "hello.png",
         intChecksums: [
-            .adler32: 0xb719d50c,
-            .crc32: 0xcf8bf108,
-            .crc32c: 0x46b46c53,
-            .posix: 0xc3a0ef52
+            .adler32: (0xb719d50c, 4),
+            .crc32: (0xcf8bf108, 4),
+            .crc32c: (0x46b46c53, 4),
+            .posix: (0xc3a0ef52, 4)
         ],
         dataChecksums: [
             .md2: "a9b1d6ecfc5b29fc70249b3c25138514",
@@ -100,6 +100,18 @@ let fixtures: [Fixture] = [
             .sha512: "362fa03bdd36ca1890da39be8e71e4a07f97aa0105df91e241548d1dbd7b00ab63b5cede22d8c35ca821bacb85438a95" +
                 "382cf98ababa137d49317c1edaf31f6b"
         ]
+    ),
+    Fixture(
+        name: "block0",
+        intChecksums: [
+            .adler32: (0x613b0e39, 4),
+            .crc32: (0x57e9754e, 4),
+            .crc32c: (0x8fea43e4, 4),
+            .fletcher64(withCheckBytes: true): (0x12a43341c1dba050, 8),
+            .fletcher64(withCheckBytes: false): (0x12a433412b802c6e, 8),
+            .posix: (0x4edc3f86, 4),
+        ],
+        dataChecksums: [:]
     )
 ]
 
@@ -110,6 +122,7 @@ func testIntChecksums(fixture: Fixture) throws {
     var adler32 = CSChecksum.adler32()
     var crc32 = CSChecksum.crc32()
     var crc32c = CSChecksum.crc32c()
+    var fletch64Check = CSChecksum.fletcher64(withCheckBytes: true)
     var posix = CSChecksum.posix()
 
     let handle = try FileHandle(forReadingFrom: url)
@@ -119,6 +132,7 @@ func testIntChecksums(fixture: Fixture) throws {
         adler32.update(withInputData: chunk)
         crc32.update(withInputData: chunk)
         crc32c.update(withInputData: chunk)
+        fletch64Check.update(withInputData: chunk)
         posix.update(withInputData: chunk)
     }
 
@@ -126,24 +140,28 @@ func testIntChecksums(fixture: Fixture) throws {
     adler32.update(withInputData: Data())
     crc32.update(withInputData: Data())
     crc32c.update(withInputData: Data())
+    fletch64Check.update(withInputData: Data())
     posix.update(withInputData: Data())
 
-    let checksums: [CSChecksumAlgorithm: UInt32] = [
-        .adler32: adler32.finalize(),
-        .crc32: crc32.finalize(),
-        .crc32c: crc32c.finalize(),
-        .posix: posix.finalize(),
+    let checksums: [CSChecksumAlgorithm: (UInt, Int)] = [
+        .adler32: (UInt(adler32.finalize()), 4),
+        .crc32: (UInt(crc32.finalize()), 4),
+        .crc32c: (UInt(crc32c.finalize()), 4),
+        .fletcher64(withCheckBytes: true): (UInt(fletch64Check.finalize()), 8),
+        .posix: (UInt(posix.finalize()), 4),
     ]
 
     for (algorithm, checksum) in checksums {
-        let expected = fixture.intChecksums[algorithm]
+        if let expected = fixture.intChecksums[algorithm] {
+            if checksum != expected {
+                print("failure for \(algorithm)")
+            }
 
-        if checksum != expected {
-            print("failure for \(algorithm)")
+            #expect(
+                checksum == expected,
+                "\(algorithm.description): expected \(String(expected.0, radix: 16)), got \(String(checksum.0, radix: 16))"
+            )
         }
-
-        #expect(checksum == expected)
-        #expect(checksum == expected) // make sure it returns the same value when rerun
     }
 }
 
@@ -209,17 +227,16 @@ func testDataChecksums(fixture: Fixture) throws {
     ]
 
     for (algorithm, checksumData) in checksums {
-        let expected = fixture.dataChecksums[algorithm]
-
-        if checksumData != expected {
-            print("failure for \(algorithm)")
+        if let expected = fixture.dataChecksums[algorithm] {
+            if checksumData != expected {
+                print("failure for \(algorithm)")
+            }
+            
+            #expect(checksumData == expected)
+            #expect(Data(CSChecksum.checksum(for: data, algorithm: algorithm)) == expected)
+            #expect(Data(try CSChecksum.checksum(at: FilePath(url.path), algorithm: algorithm)) == expected)
+            #expect(Data(try CSChecksum.checksum(at: url, algorithm: algorithm)) == expected)
         }
-
-        #expect(checksumData == expected)
-        #expect(checksumData == expected) // make sure it returns the same value when rerun
-        #expect(Data(CSChecksum.checksum(for: data, algorithm: algorithm)) == expected)
-        #expect(Data(try CSChecksum.checksum(at: FilePath(url.path), algorithm: algorithm)) == expected)
-        #expect(Data(try CSChecksum.checksum(at: url, algorithm: algorithm)) == expected)
     }
 }
 
@@ -242,7 +259,102 @@ func testAsyncDataChecksums(fixture: Fixture) async throws {
                 bufferSize: eachBufSize
             )
 
-            #expect(Data(checksum) == expected)
+            func checksumString(_ data: some Collection<UInt8>) -> String {
+                data.map { String(format: "%02x", $0) }.joined()
+            }
+
+            #expect(
+                Data(checksum) == expected,
+                "\(algorithm.description): expected \(checksumString(expected)), got \(checksumString(checksum))"
+            )
+        }
+    }
+}
+
+@Test(arguments: fixtures)
+func testUnaligned(fixture: Fixture) throws {
+    let url = fixture.url
+
+    var adler32 = CSChecksum(algorithm: .adler32)
+    var crc32 = CSChecksum(algorithm: .crc32)
+    var crc32c = CSChecksum(algorithm: .crc32c)
+    var fletcherWithCheckBytes = CSChecksum(algorithm: .fletcher64(withCheckBytes: true))
+    var fletcherWithoutCheckBytes = CSChecksum(algorithm: .fletcher64(withCheckBytes: false))
+    var posix = CSChecksum(algorithm: .posix)
+    var md2 = CSChecksum(algorithm: .md2)
+    var md5 = CSChecksum(algorithm: .md5)
+    var sha1 = CSChecksum(algorithm: .sha1)
+    var sha224 = CSChecksum.sha224()
+    var sha256 = CSChecksum.sha256()
+    var sha384 = CSChecksum.sha384()
+    var sha512 = CSChecksum.sha512()
+
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { _ = try? handle.close() }
+
+    let largerBuffer = UnsafeMutableRawBufferPointer.allocate(byteCount: 1025, alignment: 1)
+    defer { largerBuffer.deallocate() }
+
+    let buffer = UnsafeMutableRawBufferPointer(rebasing: largerBuffer.dropFirst())
+
+    while let chunk = try handle.read(upToCount: 1024), !chunk.isEmpty {
+        buffer.copyBytes(from: chunk)
+
+        let chunkBuffer = UnsafeRawBufferPointer(rebasing: buffer.prefix(chunk.count))
+
+        adler32.update(withInputData: chunkBuffer)
+        crc32.update(withInputData: chunkBuffer)
+        crc32c.update(withInputData: chunkBuffer)
+        fletcherWithCheckBytes.update(withInputData: chunkBuffer)
+        fletcherWithoutCheckBytes.update(withInputData: chunkBuffer)
+        posix.update(withInputData: chunkBuffer)
+        md2.update(withInputData: chunkBuffer)
+        md5.update(withInputData: chunkBuffer)
+        sha1.update(withInputData: chunkBuffer)
+        sha224.update(withInputData: chunkBuffer)
+        sha256.update(withInputData: chunkBuffer)
+        sha384.update(withInputData: chunkBuffer)
+        sha512.update(withInputData: chunkBuffer)
+    }
+
+    // updating with an empty data should have no effect on the result
+    adler32.update(withInputData: Data())
+    crc32.update(withInputData: Data())
+    crc32c.update(withInputData: Data())
+    fletcherWithCheckBytes.update(withInputData: Data())
+    fletcherWithoutCheckBytes.update(withInputData: Data())
+    posix.update(withInputData: Data())
+    md2.update(withInputData: Data())
+    md5.update(withInputData: Data())
+    sha1.update(withInputData: Data())
+    sha224.update(withInputData: Data())
+    sha256.update(withInputData: Data())
+    sha384.update(withInputData: Data())
+    sha512.update(withInputData: Data())
+
+    let checksums: [CSChecksumAlgorithm: Data] = [
+        .adler32: Data(adler32.finalize()),
+        .crc32: Data(crc32.finalize()),
+        .crc32c: Data(crc32c.finalize()),
+        .fletcher64(withCheckBytes: true): Data(fletcherWithCheckBytes.finalize()),
+        .fletcher64(withCheckBytes: false): Data(fletcherWithoutCheckBytes.finalize()),
+        .posix: Data(posix.finalize()),
+        .md2: Data(md2.finalize()),
+        .md5: Data(md5.finalize()),
+        .sha1: Data(sha1.finalize()),
+        .sha224: Data(sha224.finalize()),
+        .sha256: Data(sha256.finalize()),
+        .sha384: Data(sha384.finalize()),
+        .sha512: Data(sha512.finalize())
+    ]
+
+    for (algorithm, checksumData) in checksums {
+        if let expected = fixture.dataChecksums[algorithm] {
+            if checksumData != expected {
+                print("failure for \(algorithm)")
+            }
+
+            #expect(checksumData == expected)
         }
     }
 }
@@ -256,7 +368,6 @@ let excessivelyLongData: Data = {
 }()
 
 @Test(arguments: [
-    (.adler32, Data([0xb0, 0x80, 0x2f, 0xf7])),
     (.crc32, Data([0x56, 0x28, 0xe3, 0xe5])),
     (.sha224, Data([
         0xef, 0x7c, 0xa8, 0x6d, 0x5e, 0x86, 0x6c, 0xbc, 0xf7, 0xfe, 0x1e, 0x0d, 0xa1, 0xf4, 0x0c, 0x89,
