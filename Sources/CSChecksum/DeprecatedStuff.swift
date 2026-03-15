@@ -5,6 +5,7 @@
 //  Created by Charles Srstka on 1/26/25.
 //
 
+#if CommonCrypto
 import CommonCrypto
 
 internal let deprecatedStuff: some DeprecatedStuff = DeprecatedStuffImplementation()
@@ -77,3 +78,4 @@ private struct DeprecatedStuffImplementation: DeprecatedStuff {
         }
     }
 }
+#endif

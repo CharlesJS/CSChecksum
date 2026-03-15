@@ -11,6 +11,7 @@ public enum CSChecksumAlgorithm: Codable, CustomStringConvertible, Hashable, Sen
     case crc32
     case crc32c
     case fletcher64(withCheckBytes: Bool)
+#if CommonCrypto
     case md2     // WARNING: Not secure. Included for use in parsing legacy file types only.
     case md5     // WARNING: Not secure. Included for use in parsing legacy file types only.
     case sha1    // WARNING: Not secure. Included for use in parsing legacy file types only.
@@ -18,6 +19,7 @@ public enum CSChecksumAlgorithm: Codable, CustomStringConvertible, Hashable, Sen
     case sha256
     case sha384
     case sha512
+#endif
 
     public var description: String {
         switch self {
@@ -31,6 +33,7 @@ public enum CSChecksumAlgorithm: Codable, CustomStringConvertible, Hashable, Sen
             return "Fletcher64 " + (withCheckBytes ? "with" : "without") + " check bytes"
         case .posix:
             return "POSIX"
+#if CommonCrypto
         case .md2:
             return "MD2"
         case .md5:
@@ -45,6 +48,7 @@ public enum CSChecksumAlgorithm: Codable, CustomStringConvertible, Hashable, Sen
             return "SHA384"
         case .sha512:
             return "SHA512"
+#endif
         }
     }
 }

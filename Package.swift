@@ -29,6 +29,7 @@ let package = Package(
         )
     ],
     traits: [
+        "CommonCrypto",
         "Foundation",
         "ZLib"
     ],
