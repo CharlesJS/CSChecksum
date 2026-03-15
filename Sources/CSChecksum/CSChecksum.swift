@@ -2,7 +2,7 @@
 //  CSChecksum.swift
 //
 //  Created by Charles Srstka on 4/3/14.
-//  Copyright © 2014-2025 Charles Srstka. All rights reserved.
+//  Copyright © 2014-2026 Charles Srstka. All rights reserved.
 //
 
 import CommonCrypto
