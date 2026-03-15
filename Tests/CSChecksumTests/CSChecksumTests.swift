@@ -3,7 +3,6 @@ import Testing
 import System
 
 @testable import CSChecksum
-@testable import CSChecksum_Foundation
 
 struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendable {
     let url: URL
@@ -235,7 +234,9 @@ func testDataChecksums(fixture: Fixture) throws {
             #expect(checksumData == expected)
             #expect(Data(CSChecksum.checksum(for: data, algorithm: algorithm)) == expected)
             #expect(Data(try CSChecksum.checksum(at: FilePath(url.path), algorithm: algorithm)) == expected)
+#if Foundation
             #expect(Data(try CSChecksum.checksum(at: url, algorithm: algorithm)) == expected)
+#endif
         }
     }
 }

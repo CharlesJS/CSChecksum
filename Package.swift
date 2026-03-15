@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 
 import PackageDescription
 
@@ -26,14 +26,12 @@ let package = Package(
         .library(
             name: "CSChecksum",
             targets: ["CSChecksum"]
-        ),
-        .library(
-            name: "CSChecksum+Foundation",
-            targets: ["CSChecksum_Foundation"]
-        ),
+        )
+    ],
+    traits: [
+        "Foundation"
     ],
     dependencies: [
-        .package(url: "https://github.com/CharlesJS/CSDataProtocol", from: "0.1.0"),
         .package(url: "https://github.com/CharlesJS/SyncPolyfill", from: "0.1.1"),
     ],
     targets: [
@@ -44,22 +42,13 @@ let package = Package(
             name: "CSChecksum",
             dependencies: [
                 "asm",
-                "CSDataProtocol",
                 "SyncPolyfill"
             ],
             swiftSettings: swiftSettings
         ),
-        .target(
-            name: "CSChecksum_Foundation",
-            dependencies: [
-                "CSChecksum",
-                "asm",
-                .product(name: "CSDataProtocol+Foundation", package: "CSDataProtocol")
-            ]
-        ),
         .testTarget(
             name: "CSChecksumTests",
-            dependencies: ["CSChecksum_Foundation"],
+            dependencies: ["CSChecksum"],
             resources: [
                 .copy("fixtures")
             ]

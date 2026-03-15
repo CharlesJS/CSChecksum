@@ -6,9 +6,31 @@
 //
 
 import CommonCrypto
-import CSDataProtocol
 import System
 import zlib
+
+#if Foundation
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+
+public typealias Bytes = DataProtocol
+#else
+public typealias Bytes = Collection<UInt8>
+extension Bytes {
+    fileprivate var regions: CollectionOfOne<Self> { CollectionOfOne(self) }
+    fileprivate func withUnsafeBytes(closure: (UnsafeRawBufferPointer) throws -> ()) rethrows {
+        if try self.withContiguousStorageIfAvailable({ try closure(UnsafeRawBufferPointer($0)) }) == nil {
+            try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: self.count) {
+                let count = $0.initialize(fromContentsOf: self)
+                try closure(UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: $0.prefix(count))))
+            }
+        }
+    }
+}
+#endif
 
 package let defaultBufsize = 1024 * 10
 
@@ -68,9 +90,9 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     private var backing: Backing
 
     public static func checksum(
-        for data: some DataProtocol,
+        for data: some Bytes,
         algorithm: CSChecksumAlgorithm
-    ) -> some DataProtocol where Raw == ContiguousArray<UInt8> {
+    ) -> some Bytes where Raw == ContiguousArray<UInt8> {
         var cksum = CSChecksum(algorithm: algorithm)
 
         cksum.update(withInputData: data)
@@ -82,7 +104,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         for data: S,
         algorithm: CSChecksumAlgorithm,
         bufferSize: Int? = nil
-    ) async throws -> some DataProtocol where S.Element == UInt8, Raw == ContiguousArray<UInt8> {
+    ) async throws -> some Bytes where S.Element == UInt8, Raw == ContiguousArray<UInt8> {
         try await self.checksum(
             for: AsyncDataChunkSequence(base: data, bufferSize: bufferSize ?? defaultBufsize),
             algorithm: algorithm
@@ -92,7 +114,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     public static func checksum<S: AsyncSequence>(
         for data: S,
         algorithm: CSChecksumAlgorithm
-    ) async throws -> some DataProtocol where S.Element: DataProtocol, Raw == ContiguousArray<UInt8> {
+    ) async throws -> some Bytes where S.Element: Bytes, Raw == ContiguousArray<UInt8> {
         var cksum = CSChecksum(algorithm: algorithm)
 
         for try await eachChunk in data {
@@ -106,7 +128,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     public static func checksum(
         at path: FilePath,
         algorithm: CSChecksumAlgorithm
-    ) throws -> some DataProtocol where Raw == ContiguousArray<UInt8> {
+    ) throws -> some Bytes where Raw == ContiguousArray<UInt8> {
         let desc = try FileDescriptor.open(path, .readOnly)
         defer { _ = try? desc.close() }
 
@@ -121,6 +143,25 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 
         return cksum.finalize()
     }
+
+#if Foundation
+    @available(macOS 10.15.4, macCatalyst 13.4, iOS 13.4, tvOS 13.4, watchOS 6.2, *)
+    public static func checksum(
+        at url: URL,
+        algorithm: CSChecksumAlgorithm
+    ) throws -> some Bytes where Raw == ContiguousArray<UInt8> {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { _ = try? handle.close() }
+
+        var cksum = CSChecksum(algorithm: algorithm)
+
+        while let data = try autoreleasepool(invoking: { try handle.read(upToCount: defaultBufsize) }), !data.isEmpty {
+            cksum.update(withInputData: data)
+        }
+
+        return cksum.finalize()
+    }
+#endif
 
     public static func adler32() -> Self where Raw == UInt32 { .init(algorithm: .adler32, returnType: UInt32.self) }
     public static func posix() -> Self where Raw == UInt32 { .init(algorithm: .posix, returnType: UInt32.self) }
@@ -203,7 +244,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         }
     }
 
-    public mutating func update(withInputData data: some DataProtocol) {
+    public mutating func update(withInputData data: some Bytes) {
         if data.isEmpty { return }
 
         let maxLength = switch self.algorithm {

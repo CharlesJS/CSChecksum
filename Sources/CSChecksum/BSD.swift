@@ -37,8 +37,6 @@
  * SUCH DAMAGE.
  */
 
-import CSDataProtocol
-
 internal class BSDCksumState {
     private static let crctab: [UInt32] = [
         0x0,
