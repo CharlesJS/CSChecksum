@@ -7,8 +7,12 @@
 
 import System
 
-#if CommonCrypto
+#if Crypto
+import Crypto
+
+#if canImport(CommonCrypto)
 import CommonCrypto
+#endif
 #endif
 
 #if Foundation
@@ -50,10 +54,12 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         case tabularCRC32(UInt32, [UInt32])
         case data(ContiguousArray<UInt8>)
         case rawPointer(UnsafeMutableRawPointer, _ finalize: (UnsafeMutableRawPointer) -> ContiguousArray<UInt8>)
-#if CommonCrypto
-        case sha1(UnsafeMutablePointer<CC_SHA1_CTX>)
-        case sha256(UnsafeMutablePointer<CC_SHA256_CTX>)
-        case sha512(UnsafeMutablePointer<CC_SHA512_CTX>)
+#if Crypto
+        case crypto(any HashFunction)
+#if canImport(CommonCrypto)
+        case sha224(UnsafeMutablePointer<CC_SHA256_CTX>)
+        case sha384(UnsafeMutablePointer<CC_SHA512_CTX>)
+#endif
 #endif
 #if ZLib
         case zlib(uLong)
@@ -181,11 +187,13 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         .init(algorithm: .fletcher64(withCheckBytes: withCheckBytes), returnType: UInt64.self)
     }
 
-#if CommonCrypto
-    public static func sha224() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha224) }
+#if Crypto
     public static func sha256() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha256) }
-    public static func sha384() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha384) }
     public static func sha512() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha512) }
+#if canImport(CommonCrypto)
+    public static func sha224() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha224) }
+    public static func sha384() -> Self where Raw == ContiguousArray<UInt8> { .init(algorithm: .sha384) }
+#endif
 #endif
 
     public init(algorithm: CSChecksumAlgorithm) where Raw == ContiguousArray<UInt8> {
@@ -222,31 +230,27 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
             self.backing = .fletcher64(lo: 0, hi: 0, byteBuffer: [])
         case .posix:
             self.backing = .bsd(BSDCksumState())
-#if CommonCrypto
+#if Crypto
+        case .md5:
+            self.backing = .crypto(Insecure.MD5())
+        case .sha1:
+            self.backing = .crypto(Insecure.SHA1())
+        case .sha256:
+            self.backing = .crypto(SHA256())
+        case .sha512:
+            self.backing = .crypto(SHA512())
+#if canImport(CommonCrypto)
         case .md2:
             self.backing = .rawPointer(deprecatedStuff.md2Init(), deprecatedStuff.md2Finalize)
-        case .md5:
-            self.backing = .rawPointer(deprecatedStuff.md5Init(), deprecatedStuff.md5Finalize)
-        case .sha1:
-            let ctx = UnsafeMutablePointer<CC_SHA1_CTX>.allocate(capacity: 1)
-            CC_SHA1_Init(ctx)
-            self.backing = .sha1(ctx)
         case .sha224:
             let ctx = UnsafeMutablePointer<CC_SHA256_CTX>.allocate(capacity: 1)
             CC_SHA224_Init(ctx)
-            self.backing = .sha256(ctx)
-        case .sha256:
-            let ctx = UnsafeMutablePointer<CC_SHA256_CTX>.allocate(capacity: 1)
-            CC_SHA256_Init(ctx)
-            self.backing = .sha256(ctx)
+            self.backing = .sha224(ctx)
         case .sha384:
             let ctx = UnsafeMutablePointer<CC_SHA512_CTX>.allocate(capacity: 1)
             CC_SHA384_Init(ctx)
-            self.backing = .sha512(ctx)
-        case .sha512:
-            let ctx = UnsafeMutablePointer<CC_SHA512_CTX>.allocate(capacity: 1)
-            CC_SHA512_Init(ctx)
-        self.backing = .sha512(ctx)
+            self.backing = .sha384(ctx)
+#endif
 #endif
         }
     }
@@ -262,13 +266,15 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         case let .rawPointer(ptr, finalize):
             _ = finalize(ptr)
             ptr.deallocate()
-#if CommonCrypto
-        case let .sha1(ptr):
+#if Crypto
+        case .crypto:
+            break
+#if canImport(CommonCrypto)
+        case let .sha224(ptr):
             ptr.deallocate()
-        case let .sha256(ptr):
+        case let .sha384(ptr):
             ptr.deallocate()
-        case let .sha512(ptr):
-            ptr.deallocate()
+#endif
 #endif
         }
     }
@@ -281,9 +287,13 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
             Int(Int32.max)
         case .fletcher64, .posix:
             Int.max
-#if CommonCrypto
-        case .md2, .md5, .sha1, .sha224, .sha256, .sha384, .sha512:
+#if Crypto
+        case .md5, .sha1, .sha256, .sha512:
             Int(CC_LONG.max)
+#if canImport(CommonCrypto)
+        case .md2, .sha224, .sha384:
+            Int(CC_LONG.max)
+#endif
 #endif
         }
 
@@ -341,21 +351,19 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
                     }
 
                     self.backing = .fletcher64(lo: lo, hi: hi, byteBuffer: byteBuffer)
-#if CommonCrypto
+#if Crypto
+                case (_, .crypto(let _hashFunction)):
+                    var hashFunction = _hashFunction
+                    hashFunction.update(data: bytes)
+                    self.backing = .crypto(hashFunction)
+#if canImport(CommonCrypto)
                 case (.md2, .rawPointer(let ctx, _)):
                     deprecatedStuff.md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
-                case (.md5, .rawPointer(let ctx, _)):
-                    deprecatedStuff.md5Update(ctx: ctx, ptr: ptr, count: bytes.count)
-                case (.sha1, .sha1(let ctx)):
-                    CC_SHA1_Update(ctx, ptr, CC_LONG(bytes.count))
-                case (.sha224, .sha256(let ctx)):
+                case (.sha224, .sha224(let ctx)):
                     CC_SHA224_Update(ctx, ptr, CC_LONG(bytes.count))
-                case (.sha256, .sha256(let ctx)):
-                    CC_SHA256_Update(ctx, ptr, CC_LONG(bytes.count))
-                case (.sha384, .sha512(let ctx)):
+                case (.sha384, .sha384(let ctx)):
                     CC_SHA384_Update(ctx, ptr, CC_LONG(bytes.count))
-                case (.sha512, .sha512(let ctx)):
-                    CC_SHA512_Update(ctx, ptr, CC_LONG(bytes.count))
+#endif
 #endif
                 default:
                     fatalError("Invalid combination of algorithm and backing")
@@ -400,52 +408,25 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
             let data = finalize(ctx)
             self.backing = .data(data)
             return Raw(checksumBytes: data)
-#if CommonCrypto
-        case let .sha1(ctx):
-            let data = makeData(count: Int(CC_SHA1_DIGEST_LENGTH)) { _ = CC_SHA1_Final($0, ctx) }
+#if Crypto
+        case .crypto(let hashFunction):
+            return Raw(checksumBytes: ContiguousArray(hashFunction.finalize()))
+#if canImport(CommonCrypto)
+        case let .sha224(ctx):
+            let data = makeData(count: Int(CC_SHA224_DIGEST_LENGTH)) { _ = CC_SHA224_Final($0, ctx) }
 
             ctx.deallocate()
             self.backing = .data(data)
 
             return Raw(checksumBytes: data)
-        case let .sha256(ctx):
-            switch self.algorithm {
-            case .sha224:
-                let data = makeData(count: Int(CC_SHA224_DIGEST_LENGTH)) { _ = CC_SHA224_Final($0, ctx) }
+        case let .sha384(ctx):
+            let data = makeData(count: Int(CC_SHA384_DIGEST_LENGTH)) { _ = CC_SHA384_Final($0, ctx) }
 
-                ctx.deallocate()
-                self.backing = .data(data)
+            ctx.deallocate()
+            self.backing = .data(data)
 
-                return Raw(checksumBytes: data)
-            case .sha256:
-                let data = makeData(count: Int(CC_SHA256_DIGEST_LENGTH)) { _ = CC_SHA256_Final($0, ctx) }
-
-                ctx.deallocate()
-                self.backing = .data(data)
-
-                return Raw(checksumBytes: data)
-            default:
-                fatalError("Illegal backing/algorithm combo")
-            }
-        case let .sha512(ctx):
-            switch self.algorithm {
-            case .sha384:
-                let data = makeData(count: Int(CC_SHA384_DIGEST_LENGTH)) { _ = CC_SHA384_Final($0, ctx) }
-
-                ctx.deallocate()
-                self.backing = .data(data)
-
-                return Raw(checksumBytes: data)
-            case .sha512:
-                let data = makeData(count: Int(CC_SHA512_DIGEST_LENGTH)) { _ = CC_SHA512_Final($0, ctx) }
-
-                ctx.deallocate()
-                self.backing = .data(data)
-
-                return Raw(checksumBytes: data)
-            default:
-                fatalError("Illegal backing/algorithm combo")
-            }
+            return Raw(checksumBytes: data)
+#endif
 #endif
         case let .data(data):
             return Raw(checksumBytes: data)

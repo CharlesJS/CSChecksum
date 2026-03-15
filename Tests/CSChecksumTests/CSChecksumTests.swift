@@ -32,17 +32,19 @@ struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendab
         self.intChecksums = intChecksums
         var mergedDataChecksums = intChecksums.mapValues { Self.convertChecksumInt($0.0, $0.1) }
 
-#if CommonCrypto
+#if Crypto
         for (type, cksumString) in dataChecksums {
             let cksumData = Self.convertChecksumString(cksumString)
             switch type {
-            case .md2: mergedDataChecksums[.md2] = cksumData
             case .md5: mergedDataChecksums[.md5] = cksumData
             case .sha1: mergedDataChecksums[.sha1] = cksumData
-            case .sha224: mergedDataChecksums[.sha224] = cksumData
             case .sha256: mergedDataChecksums[.sha256] = cksumData
-            case .sha384: mergedDataChecksums[.sha384] = cksumData
             case .sha512: mergedDataChecksums[.sha512] = cksumData
+#if canImport(CommonCrypto)
+            case .md2: mergedDataChecksums[.md2] = cksumData
+            case .sha224: mergedDataChecksums[.sha224] = cksumData
+            case .sha384: mergedDataChecksums[.sha384] = cksumData
+#endif
             }
         }
 #endif
@@ -199,14 +201,16 @@ func testDataChecksums(fixture: Fixture) throws {
     var crc32 = CSChecksum(algorithm: .crc32)
     var crc32c = CSChecksum(algorithm: .crc32c)
     var posix = CSChecksum(algorithm: .posix)
-#if CommonCrypto
-    var md2 = CSChecksum(algorithm: .md2)
+#if Crypto
     var md5 = CSChecksum(algorithm: .md5)
     var sha1 = CSChecksum(algorithm: .sha1)
-    var sha224 = CSChecksum.sha224()
     var sha256 = CSChecksum.sha256()
-    var sha384 = CSChecksum.sha384()
     var sha512 = CSChecksum.sha512()
+#if canImport(CommonCrypto)
+    var md2 = CSChecksum(algorithm: .md2)
+    var sha224 = CSChecksum.sha224()
+    var sha384 = CSChecksum.sha384()
+#endif
 #endif
 
     let handle = try FileHandle(forReadingFrom: url)
@@ -217,14 +221,16 @@ func testDataChecksums(fixture: Fixture) throws {
         crc32.update(withInputData: chunk)
         crc32c.update(withInputData: chunk)
         posix.update(withInputData: chunk)
-#if CommonCrypto
-        md2.update(withInputData: chunk)
+#if Crypto
         md5.update(withInputData: chunk)
         sha1.update(withInputData: chunk)
-        sha224.update(withInputData: chunk)
         sha256.update(withInputData: chunk)
-        sha384.update(withInputData: chunk)
         sha512.update(withInputData: chunk)
+#if canImport(CommonCrypto)
+        md2.update(withInputData: chunk)
+        sha224.update(withInputData: chunk)
+        sha384.update(withInputData: chunk)
+#endif
 #endif
     }
 
@@ -233,26 +239,35 @@ func testDataChecksums(fixture: Fixture) throws {
     crc32.update(withInputData: Data())
     crc32c.update(withInputData: Data())
     posix.update(withInputData: Data())
-#if CommonCrypto
-    md2.update(withInputData: Data())
+#if Crypto
     md5.update(withInputData: Data())
     sha1.update(withInputData: Data())
-    sha224.update(withInputData: Data())
     sha256.update(withInputData: Data())
-    sha384.update(withInputData: Data())
     sha512.update(withInputData: Data())
+#if canImport(CommonCrypto)
+    md2.update(withInputData: Data())
+    sha224.update(withInputData: Data())
+    sha384.update(withInputData: Data())
+#endif
 #endif
 
-#if CommonCrypto
-    let cryptoChecksums: [CSChecksumAlgorithm: Data] = [
+#if Crypto
+#if canImport(CommonCrypto)
+    let ccChecksums: [CSChecksumAlgorithm: Data] = [
         .md2: Data(md2.finalize()),
+        .sha224: Data(sha224.finalize()),
+        .sha384: Data(sha384.finalize()),
+    ]
+#else
+    let ccChecksums: [CSChecksumAlgorithm: Data] = [:]
+#endif
+
+    let cryptoChecksums: [CSChecksumAlgorithm: Data] = [
         .md5: Data(md5.finalize()),
         .sha1: Data(sha1.finalize()),
-        .sha224: Data(sha224.finalize()),
         .sha256: Data(sha256.finalize()),
-        .sha384: Data(sha384.finalize()),
         .sha512: Data(sha512.finalize())
-    ]
+    ].merging(ccChecksums) { $1 }
 #else
     let cryptoChecksums: [CSChecksumAlgorithm: Data] = [:]
 #endif
@@ -322,14 +337,16 @@ func testUnaligned(fixture: Fixture) throws {
     var fletcherWithoutCheckBytes = CSChecksum(algorithm: .fletcher64(withCheckBytes: false))
     var posix = CSChecksum(algorithm: .posix)
 
-#if CommonCrypto
-    var md2 = CSChecksum(algorithm: .md2)
+#if Crypto
     var md5 = CSChecksum(algorithm: .md5)
     var sha1 = CSChecksum(algorithm: .sha1)
-    var sha224 = CSChecksum.sha224()
     var sha256 = CSChecksum.sha256()
-    var sha384 = CSChecksum.sha384()
     var sha512 = CSChecksum.sha512()
+#if canImport(CommonCrypto)
+    var md2 = CSChecksum(algorithm: .md2)
+    var sha224 = CSChecksum.sha224()
+    var sha384 = CSChecksum.sha384()
+#endif
 #endif
 
     let handle = try FileHandle(forReadingFrom: url)
@@ -351,14 +368,16 @@ func testUnaligned(fixture: Fixture) throws {
         fletcherWithCheckBytes.update(withInputData: chunkBuffer)
         fletcherWithoutCheckBytes.update(withInputData: chunkBuffer)
         posix.update(withInputData: chunkBuffer)
-#if CommonCrypto
-        md2.update(withInputData: chunkBuffer)
+#if Crypto
         md5.update(withInputData: chunkBuffer)
         sha1.update(withInputData: chunkBuffer)
-        sha224.update(withInputData: chunkBuffer)
         sha256.update(withInputData: chunkBuffer)
-        sha384.update(withInputData: chunkBuffer)
         sha512.update(withInputData: chunkBuffer)
+#if canImport(CommonCrypto)
+        md2.update(withInputData: chunkBuffer)
+        sha224.update(withInputData: chunkBuffer)
+        sha384.update(withInputData: chunkBuffer)
+#endif
 #endif
     }
 
@@ -369,26 +388,35 @@ func testUnaligned(fixture: Fixture) throws {
     fletcherWithCheckBytes.update(withInputData: Data())
     fletcherWithoutCheckBytes.update(withInputData: Data())
     posix.update(withInputData: Data())
-#if CommonCrypto
-    md2.update(withInputData: Data())
+#if Crypto
     md5.update(withInputData: Data())
     sha1.update(withInputData: Data())
-    sha224.update(withInputData: Data())
     sha256.update(withInputData: Data())
-    sha384.update(withInputData: Data())
     sha512.update(withInputData: Data())
+#if canImport(CommonCrypto)
+    md2.update(withInputData: Data())
+    sha224.update(withInputData: Data())
+    sha384.update(withInputData: Data())
+#endif
 #endif
 
-#if CommonCrypto
-    let cryptoChecksums: [CSChecksumAlgorithm: Data] = [
+#if Crypto
+#if canImport(CommonCrypto)
+    let ccChecksums: [CSChecksumAlgorithm: Data] = [
         .md2: Data(md2.finalize()),
+        .sha224: Data(sha224.finalize()),
+        .sha384: Data(sha384.finalize()),
+    ]
+#else
+    let ccChecksums: [CSChecksumAlgorithm: Data] = [:]
+#endif
+
+    let cryptoChecksums: [CSChecksumAlgorithm: Data] = [
         .md5: Data(md5.finalize()),
         .sha1: Data(sha1.finalize()),
-        .sha224: Data(sha224.finalize()),
         .sha256: Data(sha256.finalize()),
-        .sha384: Data(sha384.finalize()),
         .sha512: Data(sha512.finalize())
-    ]
+    ].merging(ccChecksums) { $1 }
 #else
     let cryptoChecksums: [CSChecksumAlgorithm: Data] = [:]
 #endif
@@ -424,7 +452,7 @@ let excessivelyLongData: Data = {
 let excessivelyLongDataResults: [CSChecksumAlgorithm: Data] = {
     var results: [CSChecksumAlgorithm: Data] = [.crc32: Data([0x56, 0x28, 0xe3, 0xe5])]
 
-#if CommonCrypto
+#if Crypto
     results[.sha224] = Data([
         0xef, 0x7c, 0xa8, 0x6d, 0x5e, 0x86, 0x6c, 0xbc, 0xf7, 0xfe, 0x1e, 0x0d, 0xa1, 0xf4, 0x0c, 0x89,
         0x0d, 0xaf, 0x72, 0x59, 0x0c, 0x8f, 0x17, 0x0c, 0x7c, 0xec, 0x6b, 0x76
@@ -450,13 +478,15 @@ func testExcessivelyLongInputData(algorithm: CSChecksumAlgorithm, expected: Data
 func testAlgorithmNames() {
     #expect(CSChecksumAlgorithm.adler32.description == "Adler32")
     #expect(CSChecksumAlgorithm.crc32.description == "CRC32")
-#if CommonCrypto
-    #expect(CSChecksumAlgorithm.md2.description == "MD2")
+#if Crypto
     #expect(CSChecksumAlgorithm.md5.description == "MD5")
     #expect(CSChecksumAlgorithm.sha1.description == "SHA1")
-    #expect(CSChecksumAlgorithm.sha224.description == "SHA224")
     #expect(CSChecksumAlgorithm.sha256.description == "SHA256")
-    #expect(CSChecksumAlgorithm.sha384.description == "SHA384")
     #expect(CSChecksumAlgorithm.sha512.description == "SHA512")
+#if canImport(CommonCrypto)
+    #expect(CSChecksumAlgorithm.md2.description == "MD2")
+    #expect(CSChecksumAlgorithm.sha224.description == "SHA224")
+    #expect(CSChecksumAlgorithm.sha384.description == "SHA384")
+#endif
 #endif
 }
