@@ -5,7 +5,11 @@
 //  Copyright © 2014-2026 Charles Srstka. All rights reserved.
 //
 
+#if canImport(Darwin)
 import System
+#else
+import SystemPackage
+#endif
 
 #if Crypto
 import Crypto
@@ -22,10 +26,6 @@ import FoundationEssentials
 import Foundation
 #endif
 
-#if ZLib
-import zlib
-#endif
-
 public typealias Bytes = DataProtocol
 #else
 public typealias Bytes = Collection<UInt8>
@@ -40,6 +40,10 @@ extension Bytes {
         }
     }
 }
+#endif
+
+#if ZLib && canImport(zlib)
+import zlib
 #endif
 
 package let defaultBufsize = 1024 * 10
@@ -61,7 +65,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         case sha384(UnsafeMutablePointer<CC_SHA512_CTX>)
 #endif
 #endif
-#if ZLib
+#if ZLib && canImport(zlib)
         case zlib(uLong)
 #endif
     }
@@ -166,6 +170,9 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         at url: URL,
         algorithm: CSChecksumAlgorithm
     ) throws -> some Bytes where Raw == ContiguousArray<UInt8> {
+#if canImport(FoundationEssentials)
+        try self.checksum(at: FilePath(url.path), algorithm: algorithm)
+#else
         let handle = try FileHandle(forReadingFrom: url)
         defer { _ = try? handle.close() }
 
@@ -176,6 +183,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         }
 
         return cksum.finalize()
+#endif
     }
 #endif
 
@@ -205,7 +213,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 
         switch algorithm {
         case .adler32:
-#if ZLib
+#if ZLib && canImport(zlib)
             self.backing = .zlib(zlib.adler32(0, nil, 0))
 #else
             self.backing = .adler32(1)
@@ -214,7 +222,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
             self.backing = if supportsFusionCRC32 {
                 .fusionCRC32(0)
             } else {
-#if ZLib
+#if ZLib && canImport(zlib)
                 .zlib(zlib.crc32(0, nil, 0))
 #else
                 .tabularCRC32(0, TabularCRC32.getCRC32Table(poly: TabularCRC32.crc32ReversePoly))
@@ -259,7 +267,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         switch self.backing {
         case .adler32, .data, .bsd, .fletcher64, .fusionCRC32, .fusionCRC32C, .tabularCRC32:
             break
-#if ZLib
+#if ZLib && canImport(zlib)
         case .zlib:
             break
 #endif
@@ -289,7 +297,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
             Int.max
 #if Crypto
         case .md5, .sha1, .sha256, .sha512:
-            Int(CC_LONG.max)
+            Int.max
 #if canImport(CommonCrypto)
         case .md2, .sha224, .sha384:
             Int(CC_LONG.max)
@@ -314,9 +322,11 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
                 switch (self.algorithm, self.backing) {
                 case (.adler32, .adler32(let cksum)):
                     self.backing = .adler32(Fletcher.adler32(bytes: rawBytes, initialValue: cksum))
-#if ZLib
+#if ZLib && canImport(zlib)
                 case (.adler32, .zlib(let cksum)):
                     self.backing = .zlib(zlib.adler32(cksum, ptr, uInt(bytes.count)))
+                case (.crc32, .zlib(let cksum)):
+                    self.backing = .zlib(zlib.crc32(cksum, ptr, uInt(bytes.count)))
 #endif
                 case (.posix, .bsd(let state)):
                     state.update(data: bytes)
@@ -366,7 +376,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 #endif
 #endif
                 default:
-                    fatalError("Invalid combination of algorithm and backing")
+                    fatalError("Invalid combination of algorithm \(self.algorithm) and backing \(self.backing)")
                 }
             }
         }
@@ -398,7 +408,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
             return Raw(checksumInteger: cksum)
         case .tabularCRC32(let cksum, _):
             return Raw(checksumInteger: cksum)
-#if ZLib
+#if ZLib && canImport(zlib)
         case let .zlib(cksum):
             return Raw(checksumInteger: UInt32(cksum))
 #endif

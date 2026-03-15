@@ -1,6 +1,11 @@
 import Foundation
 import Testing
+
+#if canImport(Darwin)
 import System
+#else
+import SystemPackage
+#endif
 
 @testable import CSChecksum
 
@@ -44,6 +49,10 @@ struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendab
             case .md2: mergedDataChecksums[.md2] = cksumData
             case .sha224: mergedDataChecksums[.sha224] = cksumData
             case .sha384: mergedDataChecksums[.sha384] = cksumData
+#else
+            case .md2: break
+            case .sha224: break
+            case .sha384: break
 #endif
             }
         }
@@ -295,6 +304,7 @@ func testDataChecksums(fixture: Fixture) throws {
     }
 }
 
+#if canImport(Darwin)
 @available(macOS 12.0, *)
 @Test(arguments: fixtures)
 func testAsyncDataChecksums(fixture: Fixture) async throws {
@@ -325,6 +335,7 @@ func testAsyncDataChecksums(fixture: Fixture) async throws {
         }
     }
 }
+#endif
 
 @Test(arguments: fixtures)
 func testUnaligned(fixture: Fixture) throws {
@@ -453,10 +464,12 @@ let excessivelyLongDataResults: [CSChecksumAlgorithm: Data] = {
     var results: [CSChecksumAlgorithm: Data] = [.crc32: Data([0x56, 0x28, 0xe3, 0xe5])]
 
 #if Crypto
+#if canImport(CommonCrypto)
     results[.sha224] = Data([
         0xef, 0x7c, 0xa8, 0x6d, 0x5e, 0x86, 0x6c, 0xbc, 0xf7, 0xfe, 0x1e, 0x0d, 0xa1, 0xf4, 0x0c, 0x89,
         0x0d, 0xaf, 0x72, 0x59, 0x0c, 0x8f, 0x17, 0x0c, 0x7c, 0xec, 0x6b, 0x76
     ])
+#endif
 
     results[.sha512] = Data([
         0x2f, 0x76, 0xf7, 0xd0, 0x56, 0x1d, 0xe2, 0x48, 0x58, 0xfe, 0x5b, 0xa6, 0xc4, 0xda, 0x72, 0xfa,

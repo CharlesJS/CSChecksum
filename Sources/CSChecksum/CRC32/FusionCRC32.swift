@@ -9,7 +9,7 @@
 // ./generate -i neon_eor3 -p crc32 -a v9s3x2e_s3
 // MIT licensed
 
-#if arch(arm64)
+#if arch(arm64) && canImport(Darwin)
 import _Builtin_intrinsics.arm.acle
 import _Builtin_intrinsics.arm.neon
 import asm
@@ -208,4 +208,10 @@ public struct FusionCRC32 {
         return ~crc0
     }
 }
-#endif // arm64
+#else
+public struct FusionCRC32 {
+    public static func crc32(bytes: UnsafeRawBufferPointer, initialValue: UInt32) -> UInt32 {
+        fatalError("Not supported on this platform")
+    }
+}
+#endif // arm64 && canImport(Darwin)

@@ -9,9 +9,10 @@
 // ./generate -i neon_eor3 -p crc32c -a v9s3x2e_s3
 // MIT licensed
 
+
+#if arch(arm64) && canImport(Darwin)
 import asm
 
-#if arch(arm64)
 import _Builtin_intrinsics.arm.acle
 import _Builtin_intrinsics.arm.neon
 
@@ -20,6 +21,8 @@ private typealias DoubleQuad = SIMD2<UInt64>
 @inline(__always) private func castToUInt64(_ x: UInt64) -> UInt64 { x }
 
 #elseif arch(x86_64)
+import asm
+
 import _Builtin_intrinsics.intel.sse4_2
 private typealias DoubleQuad = SIMD2<Int64>
 
@@ -45,7 +48,19 @@ private func eor3(_ a: DoubleQuad, _ b: DoubleQuad, _ c: DoubleQuad) -> DoubleQu
     // TODO: optimize on native x86_64 (Rosetta does not support AVX512 instructions)
     (a ^ b ^ c)
 }
-
+#else
+private typealias DoubleQuad = SIMD2<Int64>
+private func castToUInt64(_ x: Int64) -> UInt64 { fatalError("Not implemented on this platform") }
+private func __crc32cb(_ crc: Any, _ byte: Any) -> UInt32 { fatalError("Not implemented on this platform") }
+private func __crc32cw(_ crc: Any, _ word: Any) -> UInt32 { fatalError("Not implemented on this platform") }
+private func __crc32cd(_ crc: Any, _ quad: Any) -> UInt32 { fatalError("Not implemented on this platform") }
+private func vreinterpret_p8_p64(_ __p0: Any) -> DoubleQuad { fatalError("Not implemented on this platform") }
+private func vreinterpretq_u64_p16(_ __p0: Any) -> DoubleQuad { fatalError("Not implemented on this platform") }
+private func clmul_hi(_ a: Any, _ b: Any) -> DoubleQuad { fatalError("Not implemented on this platform") }
+private func clmul_lo(_ a: Any, _ b: Any) -> DoubleQuad { fatalError("Not implemented on this platform") }
+private func vmull_p8(_ a: Any, _ b: Any) -> DoubleQuad { fatalError("Not implemented on this platform") }
+private func vmov_n_u64(_ a: Any) -> Any { fatalError("Not implemented on this platform") }
+private func eor3(_ a: Any, _ b: Any, _ c: Any) -> DoubleQuad { fatalError("Not implemented on this platform") }
 #endif
 
 public struct FusionCRC32C {

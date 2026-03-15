@@ -37,20 +37,22 @@ public enum CSChecksumAlgorithm: Codable, CustomStringConvertible, Hashable, Sen
         case .posix:
             return "POSIX"
 #if Crypto
-        case .md2:
-            return "MD2"
         case .md5:
             return "MD5"
         case .sha1:
             return "SHA1"
-        case .sha224:
-            return "SHA224"
         case .sha256:
             return "SHA256"
-        case .sha384:
-            return "SHA384"
         case .sha512:
             return "SHA512"
+#if canImport(CommonCrypto)
+        case .md2:
+            return "MD2"
+        case .sha224:
+            return "SHA224"
+        case .sha384:
+            return "SHA384"
+#endif
 #endif
         }
     }
