@@ -17,12 +17,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v5
-    - name: Run tests
+    - name: Determine traits flags
+      id: traits
       run: |
         if [[ ${{ matrix.traits }} = 'all' ]]; then
-          swift test -v --enable-all-traits
+          echo "flags=--enable-all-traits" >> $GITHUB_OUTPUT
         elif [[ ${{ matrix.traits }} = 'none' ]]; then
-          swift test -v --disable-default-traits
+          echo "flags=--disable-default-traits" >> $GITHUB_OUTPUT
         else
-          swift test -v --traits ${{ matrix.traits }}
+          echo "flags=--traits ${{ matrix.traits }}" >> $GITHUB_OUTPUT
         fi
+    - name: Build
+      run: swift build -v ${{ steps.traits.outputs.flags }}
+    - name: Run tests
+      run: swift test -v ${{ steps.traits.outputs.flags }}
