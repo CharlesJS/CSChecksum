@@ -9,9 +9,12 @@
 // ./generate -i neon_eor3 -p crc32 -a v9s3x2e_s3
 // MIT licensed
 
-#if arch(arm64) && canImport(Darwin)
+#if arch(arm64)
+#if canImport(Darwin)
 import _Builtin_intrinsics.arm.acle
 import _Builtin_intrinsics.arm.neon
+#endif
+
 import asm
 
 public struct FusionCRC32 {

@@ -47,7 +47,14 @@ internal let supportsFusionCRC32 = false
 internal let supportsFusionCRC32C = false
 #endif
 
-#else // unknown library
+#else // !canImport(Darwin)
+import asm
+
+internal let supportsFusionCRC32C = supports_fusion_crc32c()
+
+#if arch(arm64)
+internal let supportsFusionCRC32 = supportsFusionCRC32C
+#else
 internal let supportsFusionCRC32 = false
-internal let supportsFusionCRC32C = false
+#endif
 #endif
