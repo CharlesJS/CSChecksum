@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Determine traits flags
       id: traits
       run: |
@@ -28,6 +28,20 @@ jobs:
           echo "flags=--traits ${{ matrix.traits }}" >> $GITHUB_OUTPUT
         fi
     - name: Build
-      run: swift build -v ${{ steps.traits.outputs.flags }}
+      run: swift build --build-tests --enable-code-coverage -v ${{ steps.traits.outputs.flags }}
     - name: Run tests
-      run: swift test -v ${{ steps.traits.outputs.flags }}
+      run: swift test --enable-code-coverage -v ${{ steps.traits.outputs.flags }} --xunit-output testresults.xml
+    - name: Collect artifacts
+      if: always()
+      run: |
+        mkdir -p artifacts
+        cp testresults*.xml artifacts/ 2>/dev/null || true
+        find .build -path "*/codecov/*.json" | xargs -I{} cp {} artifacts/ 2>/dev/null || true
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: test-results-${{ matrix.os }}-${{ matrix.traits }}
+        path: artifacts/
+
