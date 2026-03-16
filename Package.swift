@@ -13,6 +13,14 @@ let swiftSettings: [PackageDescription.SwiftSetting]? = [
 let swiftSettings: [PackageDescription.SwiftSetting]? = nil
 #endif
 
+#if arch(arm64) && !canImport(Darwin)
+let cSettings: [PackageDescription.CSetting]? = [.unsafeFlags(["-march=armv8-a+crc+crypto+sha3"])]
+#elseif arch(x86_64) && !canImport(Darwin)
+let cSettings: [PackageDescription.CSetting]? = [.unsafeFlags(["-msse4.2", "-mpclmul"])]
+#else
+let cSettings: [PackageDescription.CSetting]? = nil
+#endif
+
 let package = Package(
     name: "CSChecksum",
     platforms: [
@@ -40,7 +48,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "asm"
+            name: "asm",
+            cSettings: cSettings
         ),
         .target(
             name: "CSChecksum",
@@ -50,6 +59,7 @@ let package = Package(
                 .product(name: "Crypto", package: "swift-crypto", condition: .when(traits: ["Crypto"])),
                 .product(name: "SystemPackage", package: "swift-system", condition: .when(platforms: [.linux]))
             ],
+            cSettings: cSettings,
             swiftSettings: swiftSettings
         ),
         .testTarget(

@@ -5,6 +5,8 @@
 //  Created by Charles Srstka on 1/19/25.
 //
 
+#import "additional_hw_features.h"
+
 #define ALWAYS_INLINE static __inline __attribute__((always_inline))
 
 #if defined(__aarch64__) || defined(_M_ARM64)

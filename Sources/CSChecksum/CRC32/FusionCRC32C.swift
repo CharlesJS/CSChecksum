@@ -10,11 +10,13 @@
 // MIT licensed
 
 
-#if arch(arm64) && canImport(Darwin)
-import asm
-
+#if arch(arm64)
+#if canImport(Darwin)
 import _Builtin_intrinsics.arm.acle
 import _Builtin_intrinsics.arm.neon
+#endif
+
+import asm
 
 private typealias DoubleQuad = SIMD2<UInt64>
 
