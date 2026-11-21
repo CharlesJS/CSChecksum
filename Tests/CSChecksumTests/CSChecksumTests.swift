@@ -81,6 +81,27 @@ struct Fixture: CustomTestStringConvertible, CustomTestArgumentEncodable, Sendab
 
 let fixtures: [Fixture] = [
     Fixture(
+        name: "empty",
+        intChecksums: [
+            .adler32: (1, 4),
+            .crc32: (0, 4),
+            .crc32c: (0, 4),
+            .fletcher64(withCheckBytes: true): (0xffffffffffffffff, 8),
+            .fletcher64(withCheckBytes: false): (0, 8),
+            .posix: (0xffffffff, 4)
+        ],
+        dataChecksums: [
+            .md2: "8350e5a3e24c153df2275c9f80692773",
+            .md5: "d41d8cd98f00b204e9800998ecf8427e",
+            .sha1: "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+            .sha224: "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f",
+            .sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            .sha384: "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b",
+            .sha512: "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f6" +
+                "3b931bd47417a81a538327af927da3e"
+        ]
+    ),
+    Fixture(
         name: "gettysburg.txt",
         intChecksums: [
             .adler32: (0xa6f11300, 4),
