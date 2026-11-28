@@ -359,6 +359,59 @@ func testAsyncDataChecksums(fixture: Fixture) async throws {
 #endif
 
 @Test(arguments: fixtures)
+func testNonContiguous(fixture: Fixture) throws {
+    struct NonContiguousData: Collection {
+        let data: AnyCollection<UInt8>
+
+        var startIndex: AnyIndex { self.data.startIndex }
+        var endIndex: AnyIndex { self.data.endIndex }
+
+        func index(after i: AnyIndex) -> AnyIndex { self.data.index(after: i) }
+        subscript(position: AnyIndex) -> UInt8 { self.data[position] }
+
+        func withContiguousStorageIfAvailable<R>(_ body: (UnsafeBufferPointer<UInt8>) throws -> R) rethrows -> R? { nil }
+    }
+
+    let url = fixture.url
+    let data = try Data(contentsOf: url)
+
+    var adler32 = CSChecksum(algorithm: .adler32)
+    var crc32 = CSChecksum(algorithm: .crc32)
+    var crc32c = CSChecksum(algorithm: .crc32c)
+    var posix = CSChecksum(algorithm: .posix)
+
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { _ = try? handle.close() }
+
+    while let chunk = try handle.read(upToCount: 1024), !chunk.isEmpty {
+        let nonContiguousChunk = NonContiguousData(data: AnyCollection(chunk))
+
+        adler32.update(withInputData: nonContiguousChunk)
+        crc32.update(withInputData: nonContiguousChunk)
+        crc32c.update(withInputData: nonContiguousChunk)
+        posix.update(withInputData: nonContiguousChunk)
+    }
+
+    let checksums: [CSChecksumAlgorithm: Data] = [
+        .adler32: Data(adler32.finalize()),
+        .crc32: Data(crc32.finalize()),
+        .crc32c: Data(crc32c.finalize()),
+        .posix: Data(posix.finalize()),
+    ]
+
+    for (algorithm, checksumData) in checksums {
+        if let expected = fixture.dataChecksums[algorithm] {
+            if checksumData != expected {
+                print("failure for \(algorithm)")
+            }
+
+            #expect(checksumData == expected)
+            #expect(Data(CSChecksum.checksum(for: data, algorithm: algorithm)) == expected)
+        }
+    }
+}
+
+@Test(arguments: fixtures)
 func testUnaligned(fixture: Fixture) throws {
     let url = fixture.url
 
