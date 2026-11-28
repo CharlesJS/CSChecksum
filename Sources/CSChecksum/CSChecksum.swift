@@ -25,21 +25,6 @@ import FoundationEssentials
 #else
 import Foundation
 #endif
-
-public typealias Bytes = DataProtocol
-#else
-public typealias Bytes = Collection<UInt8>
-extension Bytes {
-    fileprivate var regions: CollectionOfOne<Self> { CollectionOfOne(self) }
-    fileprivate func withUnsafeBytes(closure: (UnsafeRawBufferPointer) throws -> ()) rethrows {
-        if try self.withContiguousStorageIfAvailable({ try closure(UnsafeRawBufferPointer($0)) }) == nil {
-            try withUnsafeTemporaryAllocation(of: UInt8.self, capacity: self.count) {
-                let count = $0.initialize(fromContentsOf: self)
-                try closure(UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: $0.prefix(count))))
-            }
-        }
-    }
-}
 #endif
 
 #if ZLib && canImport(zlib)
@@ -110,9 +95,9 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     private var backing: Backing
 
     public static func checksum(
-        for data: some Bytes,
+        for data: some Collection<UInt8>,
         algorithm: CSChecksumAlgorithm
-    ) -> some Bytes where Raw == ContiguousArray<UInt8> {
+    ) -> some Collection<UInt8> where Raw == ContiguousArray<UInt8> {
         var cksum = CSChecksum(algorithm: algorithm)
 
         cksum.update(withInputData: data)
@@ -124,7 +109,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         for data: S,
         algorithm: CSChecksumAlgorithm,
         bufferSize: Int? = nil
-    ) async throws -> some Bytes where S.Element == UInt8, Raw == ContiguousArray<UInt8> {
+    ) async throws -> some Collection<UInt8> where S.Element == UInt8, Raw == ContiguousArray<UInt8> {
         try await self.checksum(
             for: AsyncDataChunkSequence(base: data, bufferSize: bufferSize ?? defaultBufsize),
             algorithm: algorithm
@@ -134,7 +119,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     public static func checksum<S: AsyncSequence>(
         for data: S,
         algorithm: CSChecksumAlgorithm
-    ) async throws -> some Bytes where S.Element: Bytes, Raw == ContiguousArray<UInt8> {
+    ) async throws -> some Collection<UInt8> where S.Element: Collection<UInt8>, Raw == ContiguousArray<UInt8> {
         var cksum = CSChecksum(algorithm: algorithm)
 
         for try await eachChunk in data {
@@ -148,7 +133,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     public static func checksum(
         at path: FilePath,
         algorithm: CSChecksumAlgorithm
-    ) throws -> some Bytes where Raw == ContiguousArray<UInt8> {
+    ) throws -> some Collection<UInt8> where Raw == ContiguousArray<UInt8> {
         let desc = try FileDescriptor.open(path, .readOnly)
         defer { _ = try? desc.close() }
 
@@ -169,7 +154,7 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
     public static func checksum(
         at url: URL,
         algorithm: CSChecksumAlgorithm
-    ) throws -> some Bytes where Raw == ContiguousArray<UInt8> {
+    ) throws -> some Collection<UInt8> where Raw == ContiguousArray<UInt8> {
 #if canImport(FoundationEssentials)
         try self.checksum(at: FilePath(url.path), algorithm: algorithm)
 #else
@@ -287,8 +272,27 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
         }
     }
 
-    public mutating func update(withInputData data: some Bytes) {
-        if data.isEmpty { return }
+#if Foundation
+    public mutating func update(withInputData data: some DataProtocol) {
+        for eachRegion in data.regions {
+            eachRegion.withUnsafeBytes {
+                self.update(withBytes: $0)
+            }
+        }
+    }
+#endif
+
+    public mutating func update(withInputData data: some Collection<UInt8>) {
+        if data.withContiguousStorageIfAvailable({ self.update(withBytes: UnsafeRawBufferPointer($0)) }) == nil {
+            withUnsafeTemporaryAllocation(byteCount: data.count, alignment: 1) {
+                let bytes = $0.initializeMemory(as: UInt8.self, fromContentsOf: data)
+                self.update(withBytes: UnsafeRawBufferPointer(bytes))
+            }
+        }
+    }
+
+    private mutating func update(withBytes bytes: UnsafeRawBufferPointer) {
+        if bytes.isEmpty { return }
 
         let maxLength = switch self.algorithm {
         case .adler32, .crc32, .crc32c:
@@ -305,80 +309,75 @@ public struct CSChecksum<Raw: RawValue>: ~Copyable {
 #endif
         }
 
-        if data.count > maxLength {
-            let cutoff = data.index(data.startIndex, offsetBy: maxLength)
+        if bytes.count > maxLength {
+            let cutoff = bytes.index(bytes.startIndex, offsetBy: maxLength)
 
-            self.update(withInputData: data[..<cutoff])
-            self.update(withInputData: data[cutoff...])
+            self.update(withBytes: .init(rebasing: bytes[..<cutoff]))
+            self.update(withBytes: .init(rebasing: bytes[cutoff...]))
 
             return
         }
 
-        data.regions.forEach {
-            $0.withUnsafeBytes { rawBytes in
-                let bytes = rawBytes.bindMemory(to: UInt8.self)
-                guard let ptr = bytes.baseAddress else { return }
+        guard let ptr = bytes.baseAddress else { return }
 
-                switch (self.algorithm, self.backing) {
-                case (.adler32, .adler32(let cksum)):
-                    self.backing = .adler32(Fletcher.adler32(bytes: rawBytes, initialValue: cksum))
+        switch (self.algorithm, self.backing) {
+        case (.adler32, .adler32(let cksum)):
+            self.backing = .adler32(Fletcher.adler32(bytes: bytes, initialValue: cksum))
 #if ZLib && canImport(zlib)
-                case (.adler32, .zlib(let cksum)):
-                    self.backing = .zlib(zlib.adler32(cksum, ptr, uInt(bytes.count)))
-                case (.crc32, .zlib(let cksum)):
-                    self.backing = .zlib(zlib.crc32(cksum, ptr, uInt(bytes.count)))
+        case (.adler32, .zlib(let cksum)):
+            self.backing = .zlib(zlib.adler32(cksum, ptr, uInt(bytes.count)))
+        case (.crc32, .zlib(let cksum)):
+            self.backing = .zlib(zlib.crc32(cksum, ptr, uInt(bytes.count)))
 #endif
-                case (.posix, .bsd(let state)):
-                    state.update(data: bytes)
+        case (.posix, .bsd(let state)):
+            state.update(data: bytes)
 #if arch(arm64)
-                case (.crc32, .fusionCRC32(let cksum)):
-                    self.backing = .fusionCRC32(FusionCRC32.crc32(bytes: rawBytes, initialValue: cksum))
+        case (.crc32, .fusionCRC32(let cksum)):
+            self.backing = .fusionCRC32(FusionCRC32.crc32(bytes: bytes, initialValue: cksum))
 #endif
-                case (.crc32c, .fusionCRC32C(let cksum)):
-                    self.backing = .fusionCRC32C(FusionCRC32C.crc32c(bytes: rawBytes, initialValue: cksum))
-                case (.crc32, .tabularCRC32(let cksum, let table)):
-                    let newCksum = TabularCRC32.calculateCRC32(rawBytes, initialValue: cksum, table: table)
-                    self.backing = .tabularCRC32(newCksum, table)
-                case (.crc32c, .tabularCRC32(let cksum, let table)):
-                    let newCksum = TabularCRC32.calculateCRC32(rawBytes, initialValue: cksum, table: table)
-                    self.backing = .tabularCRC32(newCksum, table)
-                case (.fletcher64, .fletcher64(lo: var lo, hi: var hi, byteBuffer: var byteBuffer)):
-                    let rem = rawBytes.count % 4
+        case (.crc32c, .fusionCRC32C(let cksum)):
+            self.backing = .fusionCRC32C(FusionCRC32C.crc32c(bytes: bytes, initialValue: cksum))
+        case (.crc32, .tabularCRC32(let cksum, let table)):
+            let newCksum = TabularCRC32.calculateCRC32(bytes, initialValue: cksum, table: table)
+            self.backing = .tabularCRC32(newCksum, table)
+        case (.crc32c, .tabularCRC32(let cksum, let table)):
+            let newCksum = TabularCRC32.calculateCRC32(bytes, initialValue: cksum, table: table)
+            self.backing = .tabularCRC32(newCksum, table)
+        case (.fletcher64, .fletcher64(lo: var lo, hi: var hi, byteBuffer: var byteBuffer)):
+            let rem = bytes.count % 4
 
-                    if _fastPath(rem == 0 && byteBuffer.isEmpty) {
-                        (lo, hi) = Fletcher.fletcher64(bytes: rawBytes, lowSum: lo, highSum: hi)
-                    } else if byteBuffer.isEmpty {
-                        (lowSum: lo, highSum: hi) = Fletcher.fletcher64(bytes: rawBytes, lowSum: lo, highSum: hi)
+            if _fastPath(rem == 0 && byteBuffer.isEmpty) {
+                (lo, hi) = Fletcher.fletcher64(bytes: bytes, lowSum: lo, highSum: hi)
+            } else if byteBuffer.isEmpty {
+                (lowSum: lo, highSum: hi) = Fletcher.fletcher64(bytes: bytes, lowSum: lo, highSum: hi)
 
-                        byteBuffer.replaceSubrange(byteBuffer.indices, with: rawBytes.suffix(rem))
-                    } else {
-                        (byteBuffer + rawBytes).withUnsafeBytes { newRawBytes in
-                            (lowSum: lo, highSum: hi) = Fletcher.fletcher64(bytes: newRawBytes, lowSum: lo, highSum: hi)
+                byteBuffer.replaceSubrange(byteBuffer.indices, with: bytes.suffix(rem))
+            } else {
+                (byteBuffer + bytes).withUnsafeBytes { newBytes in
+                    (lowSum: lo, highSum: hi) = Fletcher.fletcher64(bytes: newBytes, lowSum: lo, highSum: hi)
 
-                            let newRem = newRawBytes.count % 4
-                            byteBuffer.replaceSubrange(byteBuffer.indices, with: newRawBytes.suffix(newRem))
-                        }
-                    }
-
-                    self.backing = .fletcher64(lo: lo, hi: hi, byteBuffer: byteBuffer)
-#if Crypto
-                case (_, .crypto(let _hashFunction)):
-                    var hashFunction = _hashFunction
-                    hashFunction.update(data: bytes)
-                    self.backing = .crypto(hashFunction)
-#if canImport(CommonCrypto)
-                case (.md2, .rawPointer(let ctx, _)):
-                    deprecatedStuff.md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
-                case (.sha224, .sha224(let ctx)):
-                    CC_SHA224_Update(ctx, ptr, CC_LONG(bytes.count))
-                case (.sha384, .sha384(let ctx)):
-                    CC_SHA384_Update(ctx, ptr, CC_LONG(bytes.count))
-#endif
-#endif
-                default:
-                    fatalError("Invalid combination of algorithm \(self.algorithm) and backing \(self.backing)")
+                    let newRem = newBytes.count % 4
+                    byteBuffer.replaceSubrange(byteBuffer.indices, with: newBytes.suffix(newRem))
                 }
             }
+
+            self.backing = .fletcher64(lo: lo, hi: hi, byteBuffer: byteBuffer)
+#if Crypto
+        case (_, .crypto(let _hashFunction)):
+            var hashFunction = _hashFunction
+            hashFunction.update(data: bytes)
+            self.backing = .crypto(hashFunction)
+#if canImport(CommonCrypto)
+        case (.md2, .rawPointer(let ctx, _)):
+            deprecatedStuff.md2Update(ctx: ctx, ptr: ptr, count: bytes.count)
+        case (.sha224, .sha224(let ctx)):
+            CC_SHA224_Update(ctx, ptr, CC_LONG(bytes.count))
+        case (.sha384, .sha384(let ctx)):
+            CC_SHA384_Update(ctx, ptr, CC_LONG(bytes.count))
+#endif
+#endif
+        default:
+            fatalError("Invalid combination of algorithm \(self.algorithm) and backing \(self.backing)")
         }
     }
 

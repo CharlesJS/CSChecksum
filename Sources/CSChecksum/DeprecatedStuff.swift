@@ -12,7 +12,7 @@ internal let deprecatedStuff: some DeprecatedStuff = DeprecatedStuffImplementati
 
 internal protocol DeprecatedStuff: Sendable {
     func md2Init() -> UnsafeMutableRawPointer
-    func md2Update(ctx: UnsafeMutableRawPointer, ptr: UnsafePointer<UInt8>, count: Int)
+    func md2Update(ctx: UnsafeMutableRawPointer, ptr: UnsafeRawPointer, count: Int)
     func md2Finalize(ctx _ctx: UnsafeMutableRawPointer) -> ContiguousArray<UInt8>
 }
 
@@ -29,7 +29,7 @@ private struct DeprecatedStuffImplementation: DeprecatedStuff {
 
     @available(macOS, deprecated: 10.15)
     @available(iOS, deprecated: 13.0)
-    func md2Update(ctx: UnsafeMutableRawPointer, ptr: UnsafePointer<UInt8>, count: Int) {
+    func md2Update(ctx: UnsafeMutableRawPointer, ptr: UnsafeRawPointer, count: Int) {
         CC_MD2_Update(ctx.bindMemory(to: CC_MD2_CTX.self, capacity: 1), ptr, CC_LONG(count))
     }
 

@@ -100,7 +100,7 @@ internal class BSDCksumState {
         v << 8 ^ Self.crctab[Int(v >> 24) ^ Int(ch)]
     }
 
-    func update(data: UnsafeBufferPointer<UInt8>) {
+    func update(data: UnsafeRawBufferPointer) {
         /*
          * Compute a POSIX 1003.2 checksum.  This routine has been broken out so that
          * other programs can use it.  It takes a file descriptor to read from and
